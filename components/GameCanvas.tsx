@@ -66,6 +66,7 @@ class MainScene extends Phaser.Scene {
 
   preload(): void {
     this.load.image('player-sprite', '/avatar.png');
+    this.load.image('grass', '/grass.png'); // <--- NUEVO: Cargamos el pasto
   }
 
   // --- MATEMÁTICAS ISOMÉTRICAS ---
@@ -83,7 +84,15 @@ class MainScene extends Phaser.Scene {
 
   // --- CREACIÓN DEL MUNDO ---
   create(): void {
-    this.cameras.main.setBackgroundColor('#2d5a27');
+    // 1. Crear un TileSprite que cubra toda la pantalla (Fondo infinito)
+  const width = this.cameras.main.width;
+  const height = this.cameras.main.height;
+
+// TileSprite repite la textura 'grass'
+  const bg = this.add.tileSprite(0, 0, width, height, 'grass');
+  bg.setOrigin(0, 0);
+  bg.setScrollFactor(0); // Para que se quede fijo si la cámara se mueve (opcional)
+  bg.setDepth(-100); // Al fondo de todo, detrás de la grilla
     this.drawGrid();
 
     // Crear Jugador Local
