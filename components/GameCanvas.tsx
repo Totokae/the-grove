@@ -8,8 +8,16 @@ import type { RealtimeChannel } from '@supabase/supabase-js';
 // --- CONSTANTES ---
 const TILE_WIDTH = 64;
 const TILE_HEIGHT = 32;
-const GRID_SIZE = 10; // 10x10
-const EVENT_TILE = { x: 5, y: 5 };
+const GRID_SIZE = 10; 
+const EVENT_TILE = { x: 5, y: 5 }; 
+
+// --- COLORES POR ZONA (Tintes Hexadecimales) ---
+const ZONE_TINTS: Record<string, number> = {
+  'Números': 0xcccccc,      // Gris/Verde neutro (Original)
+  'Álgebra': 0xd4e157,      // Amarillo Verdoso (Cálido)
+  'Geometría': 0x4db6ac,    // Verde Azulado (Frío/Tecnológico)
+  'Datos y Azar': 0x81c784  // Verde Hoja Intenso
+};
 
 // --- TIPOS ---
 interface PlayerData {
@@ -19,7 +27,8 @@ interface PlayerData {
   color?: number;
 }
 interface OtherPlayer {
-  sprite: Phaser.GameObjects.Sprite;
+  body: Phaser.GameObjects.Sprite; 
+  face: Phaser.GameObjects.Sprite; 
   gridX: number;
   gridY: number;
   color: number;
@@ -36,17 +45,25 @@ interface ChatData {
 
 // --- ESCENA PRINCIPAL ---
 class MainScene extends Phaser.Scene {
-  private player!: Phaser.GameObjects.Sprite;
+  private player!: Phaser.Physics.Arcade.Sprite; 
+  private playerFace!: Phaser.GameObjects.Sprite; 
+  private pet!: Phaser.Physics.Arcade.Sprite;
+  
+  // <--- NUEVO: Guardamos el fondo para poder cambiarle el color
+  private background!: Phaser.GameObjects.TileSprite;
+
   private playerGridX: number = 0;
   private playerGridY: number = 0;
   private playerColor: number = 0xffffff;
+  
+  private obstacles: Set<string> = new Set(); 
+
   private supabaseClient!: SupabaseClient;
   private myPlayerId!: string;
   private otherPlayers: Map<string, OtherPlayer> = new Map();
   private channel!: RealtimeChannel;
   private chatBubbles: Map<string, Phaser.GameObjects.Container> = new Map();
   
-  // Gráficos
   private gridGraphics!: Phaser.GameObjects.Graphics;
   private highlightGraphics!: Phaser.GameObjects.Graphics;
   private chatListener: ((e: any) => void) | null = null;
@@ -63,20 +80,20 @@ class MainScene extends Phaser.Scene {
   }
 
   preload(): void {
-    this.load.image('player-sprite', '/avatar.png');
+    this.load.image('korok-body', '/korok-body-1.png'); 
+    this.load.image('korok-face', '/korok-face-1.png');
+    this.load.image('pet-seed', '/spirit-seed.png'); 
     this.load.image('grass', '/grass.png'); 
     this.load.image('tree', '/tree.png');
   }
 
   // --- MATEMÁTICAS ISOMÉTRICAS ---
-  // Convierte coordenadas de grilla (Lógica) a Píxeles (Pantalla)
   private gridToIso(gridX: number, gridY: number): { x: number; y: number } {
     const isoX = (gridX - gridY) * (TILE_WIDTH / 2);
     const isoY = (gridX + gridY) * (TILE_HEIGHT / 2);
     return { x: isoX, y: isoY };
   }
 
-  // Convierte Píxeles (Mouse) a Grilla (Lógica)
   private isoToGrid(isoX: number, isoY: number): { x: number; y: number } {
     const gridX = Math.round((isoX / (TILE_WIDTH / 2) + isoY / (TILE_HEIGHT / 2)) / 2);
     const gridY = Math.round((isoY / (TILE_HEIGHT / 2) - isoX / (TILE_WIDTH / 2)) / 2);
@@ -84,49 +101,45 @@ class MainScene extends Phaser.Scene {
   }
 
   create(): void {
-    // 1. CONFIGURACIÓN DE CÁMARA
-    // Centramos el mundo en (0,0). Esto simplifica todas las matemáticas.
     this.cameras.main.centerOn(0, 0);
 
-    // 2. FONDO INFINITO
-    // Usamos un TileSprite gigante centrado en 0,0
-    const bg = this.add.tileSprite(0, 0, 4000, 4000, 'grass');
-    bg.setOrigin(0.5, 0.5); // Importante: Origen al centro
-    bg.setDepth(-2000); 
-    bg.setTint(0xcccccc);
+    // <--- NUEVO: Asignamos a this.background
+    this.background = this.add.tileSprite(0, 0, 4000, 4000, 'grass');
+    this.background.setOrigin(0.5, 0.5);
+    this.background.setDepth(-2000); 
+    this.background.setTint(0xcccccc); // Color inicial
 
-    // 3. INICIALIZAR GRÁFICOS
     this.gridGraphics = this.add.graphics();
+    this.gridGraphics.setDepth(-1000);
+    
     this.highlightGraphics = this.add.graphics();
-    this.highlightGraphics.setDepth(1); // El cursor amarillo va encima de la grilla
+    this.highlightGraphics.setDepth(-900);
 
-    // 4. DIBUJAR GRILLA (Lógica Matemática Pura)
     this.drawGrid();
 
-    // 5. ÁRBOL (En 5,5)
     const { x: treeX, y: treeY } = this.gridToIso(EVENT_TILE.x, EVENT_TILE.y);
     const tree = this.add.sprite(treeX, treeY, 'tree');
     tree.setOrigin(0.5, 0.9);
     tree.setDepth(treeY + 10);
+    
+    this.obstacles.add(`${EVENT_TILE.x},${EVENT_TILE.y}`);
 
-    // 6. JUGADOR LOCAL
     const { x: playerX, y: playerY } = this.gridToIso(0, 0);
-    this.player = this.add.sprite(playerX, playerY, 'player-sprite');
+    
+    this.player = this.physics.add.sprite(playerX, playerY, 'korok-body'); 
     this.player.setOrigin(0.5, 1);
     this.player.setDepth(playerY);
-    this.player.setTint(this.playerColor);
+    this.player.setTint(this.playerColor); 
 
-    // 7. INPUT (Clics)
+    this.playerFace = this.add.sprite(playerX, playerY, 'korok-face');
+    this.playerFace.setOrigin(0.5, 1);
+    this.playerFace.setDepth(playerY + 1);
+
     this.input.on('pointerdown', (pointer: Phaser.Input.Pointer) => {
-      // Phaser ajusta pointer.worldX automáticamente basándose en la cámara
       const { x: gridX, y: gridY } = this.isoToGrid(pointer.worldX, pointer.worldY);
-      
-      console.log(`Clic en World: ${pointer.worldX}, ${pointer.worldY} -> Grid: ${gridX}, ${gridY}`);
-      
       this.movePlayerToGrid(gridX, gridY);
     });
 
-    // Eventos Globales (Chat)
     this.chatListener = (e: any) => {
         const msg = e.detail;
         this.sendChat(msg);
@@ -134,74 +147,111 @@ class MainScene extends Phaser.Scene {
     window.addEventListener('PHASER_CHAT_EVENT', this.chatListener);
 
     this.setupRealtime();
-    
-    // Manejar redimensionamiento
     this.scale.on('resize', this.resize, this);
+
+    this.pet = this.physics.add.sprite(this.player.x - 50, this.player.y, 'pet-seed');
+    this.pet.body.setSize(16, 16); 
   }
 
   resize(gameSize: Phaser.Structs.Size): void {
       this.cameras.main.centerOn(0, 0);
   }
 
+  // <--- NUEVO: Función para cambiar el ambiente visual
+  public changeEnvironment(zoneName: string) {
+      const tint = ZONE_TINTS[zoneName] || 0xcccccc;
+      
+      // Hacemos una transición suave de color (tween)
+      this.tweens.addCounter({
+          from: 0,
+          to: 100,
+          duration: 1000,
+          onUpdate: (tween) => {
+              // Interpolar colores es complejo, aquí haremos un cambio directo con fade
+              // O simplemente aplicamos el tinte directo si queremos rendimiento
+              this.background.setTint(tint);
+          }
+      });
+      console.log(`Ambiente cambiado a: ${zoneName} (Tinte: ${tint.toString(16)})`);
+  }
+
   update(): void {
-    // Profundidad dinámica (Z-index)
     this.player.setDepth(this.player.y);
-    this.otherPlayers.forEach(p => p.sprite.setDepth(p.sprite.y));
+
+    if (this.player && this.playerFace) {
+        this.playerFace.setPosition(this.player.x, this.player.y);
+        this.playerFace.setDepth(this.player.depth + 1);
+    }
+
+    this.otherPlayers.forEach(p => {
+        p.body.setDepth(p.body.y);
+        p.face.setPosition(p.body.x, p.body.y);
+        p.face.setDepth(p.body.depth + 1);
+    });
     
     this.chatBubbles.forEach((bubble, id) => {
-        const target = (id === this.myPlayerId) ? this.player : this.otherPlayers.get(id)?.sprite;
+        const target = (id === this.myPlayerId) ? this.player : this.otherPlayers.get(id)?.body;
         if (target) bubble.x = target.x;
         else { bubble.destroy(); this.chatBubbles.delete(id); }
     });
 
-    // --- LÓGICA DEL HIGHLIGHT (Cursor Amarillo) ---
+    if (this.pet && this.player) {
+      const targetX = this.player.x - 30; 
+      const targetY = this.player.y - 40; 
+      const distance = Phaser.Math.Distance.Between(this.pet.x, this.pet.y, targetX, targetY);
+
+      if (distance > 3) {
+        this.pet.x = Phaser.Math.Linear(this.pet.x, targetX, 0.08); 
+        this.pet.y = Phaser.Math.Linear(this.pet.y, targetY, 0.08);
+      }
+
+      this.pet.scaleY = 1 + Math.sin(this.time.now / 200) * 0.05;
+      this.pet.scaleX = 1 + Math.cos(this.time.now / 200) * 0.05;
+      this.pet.setDepth(this.pet.y);
+    }
+
     const pointer = this.input.activePointer;
     const { x: gx, y: gy } = this.isoToGrid(pointer.worldX, pointer.worldY);
 
     this.highlightGraphics.clear();
-
     const offset = Math.floor(GRID_SIZE / 2);
-    // Solo dibujar si estamos dentro de los límites
+    
+    const isObstacle = this.obstacles.has(`${gx},${gy}`);
+    const cursorColor = isObstacle ? 0xff0000 : 0xffff00; 
+
     if (gx >= -offset && gx <= offset && gy >= -offset && gy <= offset) {
         const iso = this.gridToIso(gx, gy);
-        
-        // Puntos del rombo relativos al centro de la baldosa
         const points = [
             { x: iso.x, y: iso.y - TILE_HEIGHT / 2 },
             { x: iso.x + TILE_WIDTH / 2, y: iso.y },
             { x: iso.x, y: iso.y + TILE_HEIGHT / 2 },
             { x: iso.x - TILE_WIDTH / 2, y: iso.y }
         ];
-        
-        this.highlightGraphics.lineStyle(3, 0xffff00, 1); // Amarillo, grosor 3
+        this.highlightGraphics.lineStyle(3, cursorColor, 1);
         this.highlightGraphics.strokePoints(points, true, true);
     }
   }
 
-  // --- DIBUJO DE GRILLA (Método Graphics) ---
+  // --- DIBUJO DE GRILLA ---
   private drawGrid(): void {
     this.gridGraphics.clear();
-    this.gridGraphics.lineStyle(1, 0xffffff, 0.3); // Línea blanca fina
+    this.gridGraphics.lineStyle(1, 0xffffff, 0.3);
 
     const offset = Math.floor(GRID_SIZE / 2);
     
-    // Dibujamos cada baldosa usando la misma fórmula que el input
     for (let x = -offset; x <= offset; x++) {
       for (let y = -offset; y <= offset; y++) {
         const iso = this.gridToIso(x, y);
-        
         const points = [
           { x: iso.x, y: iso.y - TILE_HEIGHT / 2 },
           { x: iso.x + TILE_WIDTH / 2, y: iso.y },
           { x: iso.x, y: iso.y + TILE_HEIGHT / 2 },
           { x: iso.x - TILE_WIDTH / 2, y: iso.y },
         ];
-        
         this.gridGraphics.strokePoints(points, true, true);
       }
     }
     
-    // Dibujar la "Baldosa de Evento" (Azul) usando relleno
     const { x: ex, y: ey } = this.gridToIso(EVENT_TILE.x, EVENT_TILE.y);
     const eventPoints = [
         { x: ex, y: ey - TILE_HEIGHT / 2 },
@@ -209,33 +259,73 @@ class MainScene extends Phaser.Scene {
         { x: ex, y: ey + TILE_HEIGHT / 2 },
         { x: ex - TILE_WIDTH / 2, y: ey },
     ];
-    this.gridGraphics.fillStyle(0x0000ff, 0.5); // Azul semitransparente
+    this.gridGraphics.fillStyle(0x0000ff, 0.5);
     this.gridGraphics.fillPoints(eventPoints, true, true);
   }
 
   // --- MOVIMIENTO ---
-  private movePlayerToGrid(gridX: number, gridY: number): void {
+  private movePlayerToGrid(gridX: number, gridY: number, onArrival?: () => void): void {
     const offset = Math.floor(GRID_SIZE / 2);
-    // Validación estricta de límites
+
     if (gridX < -offset || gridX > offset || gridY < -offset || gridY > offset) return;
 
+    if (this.obstacles.has(`${gridX},${gridY}`)) {
+        if (gridX === EVENT_TILE.x && gridY === EVENT_TILE.y) {
+            const neighbors = [
+                { x: gridX, y: gridY - 1 },
+                { x: gridX, y: gridY + 1 },
+                { x: gridX - 1, y: gridY },
+                { x: gridX + 1, y: gridY }
+            ];
+
+            const validNeighbors = neighbors.filter(n => 
+                !this.obstacles.has(`${n.x},${n.y}`) &&
+                n.x >= -offset && n.x <= offset &&
+                n.y >= -offset && n.y <= offset
+            );
+
+            let bestTile = validNeighbors[0];
+            let minDistance = 9999;
+
+            validNeighbors.forEach(tile => {
+                const dist = Phaser.Math.Distance.Between(this.playerGridX, this.playerGridY, tile.x, tile.y);
+                if (dist < minDistance) {
+                    minDistance = dist;
+                    bestTile = tile;
+                }
+            });
+
+            if (bestTile) {
+                this.movePlayerToGrid(bestTile.x, bestTile.y, () => {
+                    const triggerEvent = this.registry.get('onInteract');
+                    if (triggerEvent) triggerEvent({ type: 'math-challenge', id: 1 });
+                    
+                    const treeSprite = this.children.list.find(c => c.type === 'Sprite' && c.texture.key === 'tree') as Phaser.GameObjects.Sprite;
+                    if (treeSprite) {
+                        this.tweens.add({
+                            targets: treeSprite,
+                            scaleX: 1.05, scaleY: 0.95, yoyo: true, duration: 100
+                        });
+                    }
+                });
+            }
+        }
+        return;
+    }
+
     const { x, y } = this.gridToIso(gridX, gridY);
+    const distTiles = Phaser.Math.Distance.Between(this.playerGridX, this.playerGridY, gridX, gridY);
+    const duration = Math.min(800, Math.max(300, distTiles * 200));
 
     this.tweens.add({
       targets: this.player,
       x: x,
       y: y,
-      duration: 300,
+      duration: duration,
       ease: 'Power2',
-      onUpdate: () => this.player.setDepth(this.player.y),
       onComplete: () => {
-        this.player.setDepth(this.player.y);
-        // Interacción
-        if (gridX === EVENT_TILE.x && gridY === EVENT_TILE.y) {
-          const triggerEvent = this.registry.get('onInteract');
-          if (triggerEvent) triggerEvent({ type: 'math-challenge', id: 1 });
-        }
-      },
+          if (onArrival) onArrival();
+      }
     });
 
     this.playerGridX = gridX;
@@ -250,7 +340,7 @@ class MainScene extends Phaser.Scene {
     }
   }
 
-  // --- RED (Igual que antes) ---
+  // --- RED ---
   private handleOtherPlayerMove(data: PlayerData): void {
     if (data.id === this.myPlayerId) return;
     const { x: gridX, y: gridY, color } = data;
@@ -259,19 +349,23 @@ class MainScene extends Phaser.Scene {
     let other = this.otherPlayers.get(data.id);
     if (other) {
       this.tweens.add({
-        targets: other.sprite,
-        x: x, y: y, duration: 300, ease: 'Power2',
-        onUpdate: () => other!.sprite.setDepth(other!.sprite.y),
+        targets: other.body,
+        x: x, y: y, duration: 300, ease: 'Power2'
       });
       if (color && other.color !== color) {
-        other.sprite.setTint(color); other.color = color;
+        other.body.setTint(color); other.color = color;
       }
     } else {
-      const sprite = this.add.sprite(x, y, 'player-sprite');
-      sprite.setOrigin(0.5, 1);
-      sprite.setTint(color || 0xff0000);
-      sprite.setDepth(y);
-      this.otherPlayers.set(data.id, { sprite, gridX, gridY, color: color || 0xff0000 });
+      const body = this.add.sprite(x, y, 'korok-body');
+      body.setOrigin(0.5, 1);
+      body.setTint(color || 0xff0000);
+      body.setDepth(y);
+
+      const face = this.add.sprite(x, y, 'korok-face');
+      face.setOrigin(0.5, 1);
+      face.setDepth(y + 1);
+
+      this.otherPlayers.set(data.id, { body, face, gridX, gridY, color: color || 0xff0000 });
     }
   }
 
@@ -288,7 +382,7 @@ class MainScene extends Phaser.Scene {
 
   private handleChatMessage(data: ChatData): void {
     const { id, message } = data;
-    let targetSprite = (id === this.myPlayerId) ? this.player : (this.otherPlayers.get(id)?.sprite || null);
+    let targetSprite = (id === this.myPlayerId) ? this.player : (this.otherPlayers.get(id)?.body || null);
     if (targetSprite) this.createChatBubble(targetSprite, message, id);
   }
 
@@ -296,7 +390,7 @@ class MainScene extends Phaser.Scene {
     const old = this.chatBubbles.get(playerId);
     if (old) { old.destroy(); this.chatBubbles.delete(playerId); }
 
-    const bubble = this.add.container(sprite.x, sprite.y - 60);
+    const bubble = this.add.container(sprite.x, sprite.y - 80); 
     const bg = this.add.graphics();
     bg.fillStyle(0xffffff, 0.9);
     bg.fillRoundedRect(-60, -15, 120, 30, 8);
@@ -309,7 +403,7 @@ class MainScene extends Phaser.Scene {
     this.chatBubbles.set(playerId, bubble);
 
     this.tweens.add({
-      targets: bubble, y: sprite.y - 100, alpha: 0, duration: 3000, ease: 'Power2',
+      targets: bubble, y: sprite.y - 120, alpha: 0, duration: 3000, ease: 'Power2',
       onComplete: () => { bubble.destroy(); this.chatBubbles.delete(playerId); }
     });
   }
@@ -322,9 +416,10 @@ class MainScene extends Phaser.Scene {
       .on('presence', { event: 'sync' }, () => {
           const state = this.channel.presenceState();
           const presentIds = new Set(Object.keys(state));
-          this.otherPlayers.forEach((_, id) => {
+          this.otherPlayers.forEach((playerData, id) => {
               if (!presentIds.has(id) && id !== this.myPlayerId) {
-                  this.otherPlayers.get(id)?.sprite.destroy();
+                  playerData.body.destroy();
+                  playerData.face.destroy();
                   this.otherPlayers.delete(id);
               }
           });
@@ -349,9 +444,10 @@ class MainScene extends Phaser.Scene {
 interface GameCanvasProps {
   onInteract?: (event: InteractionEvent) => void;
   playerColor?: number;
+  currentZone?: string; // <--- NUEVO PROP
 }
 
-export default function GameCanvas({ onInteract, playerColor = 0xffffff }: GameCanvasProps) {
+export default function GameCanvas({ onInteract, playerColor = 0xffffff, currentZone }: GameCanvasProps) {
   const gameRef = useRef<Phaser.Game | null>(null);
   const containerRef = useRef<HTMLDivElement>(null);
 
@@ -384,10 +480,12 @@ export default function GameCanvas({ onInteract, playerColor = 0xffffff }: GameC
     return () => { gameRef.current?.destroy(true); };
   }, []);
 
+  // UseEffect para actualizar onInteract
   useEffect(() => {
     if (gameRef.current && onInteract) gameRef.current.registry.set('onInteract', onInteract);
   }, [onInteract]);
 
+  // UseEffect para actualizar Color y Movimiento
   useEffect(() => {
     if (gameRef.current) {
         const scene = gameRef.current.scene.getScene('MainScene') as any;
@@ -398,6 +496,16 @@ export default function GameCanvas({ onInteract, playerColor = 0xffffff }: GameC
         }
     }
   }, [playerColor]);
+
+  // <--- NUEVO: UseEffect para detectar cambio de ZONA
+  useEffect(() => {
+      if (gameRef.current && currentZone) {
+          const scene = gameRef.current.scene.getScene('MainScene') as MainScene;
+          if (scene && scene.changeEnvironment) {
+              scene.changeEnvironment(currentZone);
+          }
+      }
+  }, [currentZone]);
 
   return <div ref={containerRef} style={{ width: '100vw', height: '100vh', overflow: 'hidden' }} />;
 }
