@@ -150,7 +150,10 @@ class MainScene extends Phaser.Scene {
     this.scale.on('resize', this.resize, this);
 
     this.pet = this.physics.add.sprite(this.player.x - 50, this.player.y, 'pet-seed');
-    this.pet.body.setSize(16, 16); 
+    // Arreglo para TypeScript: Solo cambia el tamaño si el cuerpo existe
+if (this.pet.body) {
+  this.pet.body.setSize(16, 16);
+}
   }
 
   resize(gameSize: Phaser.Structs.Size): void {
