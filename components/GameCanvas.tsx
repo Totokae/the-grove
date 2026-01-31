@@ -9,8 +9,7 @@ import type { RealtimeChannel } from '@supabase/supabase-js';
 const TILE_WIDTH = 64;
 const TILE_HEIGHT = 32;
 
-// 👇 AQUÍ DISEÑAS TU SALA (1 = Suelo, 0 = Vacío)
-// Puedes hacer formas de L, cruces, islas, lo que quieras.
+// 👇 DISEÑO DE SALA (TU MATRIZ ORIGINAL)
 const ROOM_LAYOUT = [
     [0, 1, 1, 1, 1, 1, 1, 1, 0],
     [0, 1, 1, 1, 1, 1, 1, 1, 0],
@@ -23,13 +22,12 @@ const ROOM_LAYOUT = [
     [0, 1, 1, 1, 1, 1, 1, 1, 0]  // Entrada
 ];
 
-// Calculamos centro para coordenadas relativas
+// Calculamos centro
 const ROWS = ROOM_LAYOUT.length;
 const COLS = ROOM_LAYOUT[0].length;
 const OFFSET_ROW = Math.floor(ROWS / 2);
 const OFFSET_COL = Math.floor(COLS / 2);
 
-// Evento en una casilla válida (Asegúrate que sea un 1 en el mapa)
 const EVENT_TILE = { x: 2, y: 2 }; 
 
 // --- COLORES POR ZONA ---
@@ -40,39 +38,36 @@ const ZONE_TINTS: Record<string, number> = {
   'Datos y Azar': 0x728BE8,
 };
 
-// --- TIPOS ---
+// --- TIPOS (ACTUALIZADOS CON NOMBRE) ---
 interface PlayerData {
   id: string;
   x: number;
   y: number;
   color?: number;
+  name?: string; // <--- NUEVO: Nombre para red
 }
 interface OtherPlayer {
   body: Phaser.GameObjects.Sprite; 
+  nameTag: Phaser.GameObjects.Text; // <--- NUEVO: Etiqueta visual
   gridX: number;
   gridY: number;
   color: number;
 }
-interface InteractionEvent {
-  type: string;
-  id: number;
-}
-interface ChatData {
-  type: 'chat';
-  message: string;
-  id: string;
-}
+interface InteractionEvent { type: string; id: number; }
+interface ChatData { type: 'chat'; message: string; id: string; }
 
 // --- ESCENA PRINCIPAL ---
 class MainScene extends Phaser.Scene {
   private player!: Phaser.Physics.Arcade.Sprite; 
+  private playerNameTag!: Phaser.GameObjects.Text; // <--- NUEVO
   private pet!: Phaser.Physics.Arcade.Sprite;
   private background!: Phaser.GameObjects.TileSprite;
 
   private playerGridX: number = 0;
   private playerGridY: number = 0;
   private playerColor: number = 0xffffff;
-  
+  private playerName: string = "Player"; // <--- NUEVO
+
   private obstacles: Set<string> = new Set(); 
 
   private supabaseClient!: SupabaseClient;
@@ -89,14 +84,17 @@ class MainScene extends Phaser.Scene {
     supabaseClient?: SupabaseClient;
     playerId?: string;
     playerColor?: number;
+    playerName?: string; // <--- RECIBIR NOMBRE
   }) {
     super({ key: 'MainScene', ...config });
     if (config?.supabaseClient) this.supabaseClient = config.supabaseClient;
     if (config?.playerId) this.myPlayerId = config.playerId;
     if (config?.playerColor !== undefined) this.playerColor = config.playerColor;
+    if (config?.playerName) this.playerName = config.playerName;
   }
 
   preload(): void {
+    // 👇 MANTENEMOS TU SPRITE DE 32PX (IMPORTANTE)
     this.load.spritesheet('player', '/character.png', { 
         frameWidth: 32, 
         frameHeight: 32 
@@ -106,7 +104,6 @@ class MainScene extends Phaser.Scene {
     this.load.image('tree', '/tree.png');
   }
 
-  // --- MATEMÁTICAS ISOMÉTRICAS ---
   private gridToIso(gridX: number, gridY: number): { x: number; y: number } {
     const isoX = (gridX - gridY) * (TILE_WIDTH / 2);
     const isoY = (gridX + gridY) * (TILE_HEIGHT / 2);
@@ -119,16 +116,10 @@ class MainScene extends Phaser.Scene {
     return { x: gridX, y: gridY };
   }
 
-  // --- VALIDACIÓN DE MAPA (NUEVO) ---
   private isValidTile(gridX: number, gridY: number): boolean {
-    // Convertir coordenadas centradas (ej: 0,0) a índices de matriz (ej: 5,5)
     const row = gridY + OFFSET_ROW;
     const col = gridX + OFFSET_COL;
-
-    // Verificar límites
     if (row < 0 || row >= ROWS || col < 0 || col >= COLS) return false;
-
-    // Verificar si es suelo (1)
     return ROOM_LAYOUT[row][col] === 1;
   }
 
@@ -142,10 +133,8 @@ class MainScene extends Phaser.Scene {
 
     this.gridGraphics = this.add.graphics();
     this.gridGraphics.setDepth(-1000);
-    
     this.highlightGraphics = this.add.graphics();
     this.highlightGraphics.setDepth(-900);
-
     this.drawGrid();
 
     // ÁRBOL
@@ -157,12 +146,21 @@ class MainScene extends Phaser.Scene {
 
     // JUGADOR
     const { x: playerX, y: playerY } = this.gridToIso(0, 0);
-    
     this.player = this.physics.add.sprite(playerX, playerY, 'player'); 
     this.player.setOrigin(0.5, 0.8); 
     this.player.setDepth(playerY);
     this.player.setTint(this.playerColor); 
     this.player.setScale(1.5);
+
+    // 👇 CREAMOS EL NOMBRE FLOTANTE
+    this.playerNameTag = this.add.text(playerX, playerY - 50, this.playerName, {
+        fontSize: '12px',
+        color: '#ffffff',
+        fontFamily: 'Arial',
+        stroke: '#000000',
+        strokeThickness: 3,
+        align: 'center'
+    }).setOrigin(0.5).setDepth(playerY + 2000);
 
     if (!this.anims.exists('walk')) {
         this.anims.create({ 
@@ -174,50 +172,43 @@ class MainScene extends Phaser.Scene {
     }
     this.player.setFrame(0);
 
-    // Input de movimiento
     this.input.on('pointerdown', (pointer: Phaser.Input.Pointer) => {
       const { x: gridX, y: gridY } = this.isoToGrid(pointer.worldX, pointer.worldY);
       this.movePlayerToGrid(gridX, gridY);
     });
 
-    // Chat listener
-    this.chatListener = (e: any) => {
-        const msg = e.detail;
-        this.sendChat(msg);
-    };
+    this.chatListener = (e: any) => { this.sendChat(e.detail); };
     window.addEventListener('PHASER_CHAT_EVENT', this.chatListener);
 
     this.setupRealtime();
     this.scale.on('resize', this.resize, this);
 
-    // Mascota
     this.pet = this.physics.add.sprite(this.player.x - 50, this.player.y, 'pet-seed');
-    if (this.pet.body) {
-      this.pet.body.setSize(16, 16);
-    }
+    if (this.pet.body) this.pet.body.setSize(16, 16);
   }
 
-  resize(gameSize: Phaser.Structs.Size): void {
-      this.cameras.main.centerOn(0, 0);
-  }
+  resize(gameSize: Phaser.Structs.Size): void { this.cameras.main.centerOn(0, 0); }
 
   public changeEnvironment(zoneName: string) {
       const tint = ZONE_TINTS[zoneName] || 0xcccccc;
       this.tweens.addCounter({
-          from: 0,
-          to: 100,
-          duration: 1000,
-          onUpdate: (tween) => {
-              this.background.setTint(tint);
-          }
+          from: 0, to: 100, duration: 1000,
+          onUpdate: () => { this.background.setTint(tint); }
       });
   }
 
   update(): void {
     this.player.setDepth(this.player.y);
+    
+    // 👇 ACTUALIZAR NOMBRE LOCAL
+    this.playerNameTag.setPosition(this.player.x, this.player.y - 50);
+    this.playerNameTag.setDepth(this.player.depth + 2000);
 
+    // 👇 ACTUALIZAR NOMBRES REMOTOS
     this.otherPlayers.forEach(p => {
         p.body.setDepth(p.body.y);
+        p.nameTag.setPosition(p.body.x, p.body.y - 50);
+        p.nameTag.setDepth(p.body.depth + 2000);
     });
     
     this.chatBubbles.forEach((bubble, id) => {
@@ -230,7 +221,6 @@ class MainScene extends Phaser.Scene {
       const targetX = this.player.x - 30; 
       const targetY = this.player.y - 40; 
       const distance = Phaser.Math.Distance.Between(this.pet.x, this.pet.y, targetX, targetY);
-
       if (distance > 3) {
         this.pet.x = Phaser.Math.Linear(this.pet.x, targetX, 0.08); 
         this.pet.y = Phaser.Math.Linear(this.pet.y, targetY, 0.08);
@@ -240,17 +230,13 @@ class MainScene extends Phaser.Scene {
       this.pet.setDepth(this.pet.y);
     }
 
-    // Highlight del cursor (SOLO SI ES VÁLIDO)
     const pointer = this.input.activePointer;
     const { x: gx, y: gy } = this.isoToGrid(pointer.worldX, pointer.worldY);
-
     this.highlightGraphics.clear();
     
-    // Solo dibujamos highlight si es una baldosa válida
     if (this.isValidTile(gx, gy)) {
         const isObstacle = this.obstacles.has(`${gx},${gy}`);
         const cursorColor = isObstacle ? 0xff0000 : 0xffff00; 
-        
         const iso = this.gridToIso(gx, gy);
         const points = [
             { x: iso.x, y: iso.y - TILE_HEIGHT / 2 },
@@ -263,20 +249,15 @@ class MainScene extends Phaser.Scene {
     }
   }
 
-  // --- DIBUJADO DE GRILLA BASADO EN MATRIZ (NUEVO) ---
   private drawGrid(): void {
     this.gridGraphics.clear();
     this.gridGraphics.lineStyle(1, 0xffffff, 0.3);
 
     for (let row = 0; row < ROWS; row++) {
       for (let col = 0; col < COLS; col++) {
-        // Si la celda es 0, la saltamos (hueco)
         if (ROOM_LAYOUT[row][col] === 0) continue;
-
-        // Convertir índice de matriz a coordenadas de juego
         const gridX = col - OFFSET_COL;
         const gridY = row - OFFSET_ROW;
-        
         const iso = this.gridToIso(gridX, gridY);
         const points = [
           { x: iso.x, y: iso.y - TILE_HEIGHT / 2 },
@@ -287,8 +268,6 @@ class MainScene extends Phaser.Scene {
         this.gridGraphics.strokePoints(points, true, true);
       }
     }
-
-    // Dibujar evento solo si está en zona válida (opcional)
     const { x: ex, y: ey } = this.gridToIso(EVENT_TILE.x, EVENT_TILE.y);
     const eventPoints = [
         { x: ex, y: ey - TILE_HEIGHT / 2 },
@@ -300,41 +279,30 @@ class MainScene extends Phaser.Scene {
     this.gridGraphics.fillPoints(eventPoints, true, true);
   }
 
-  // --- MOVIMIENTO (ACTUALIZADO CON MATRIZ) ---
   private movePlayerToGrid(gridX: number, gridY: number, onArrival?: () => void): void {
-    
-    // 1. Verificar si la casilla existe en el diseño de la sala
     if (!this.isValidTile(gridX, gridY)) return;
 
-    // Manejo de obstáculos
     if (this.obstacles.has(`${gridX},${gridY}`)) {
         if (gridX === EVENT_TILE.x && gridY === EVENT_TILE.y) {
-            // Buscar vecinos, pero verificar que sean baldosas válidas (isValidTile)
             const neighbors = [
                 { x: gridX, y: gridY - 1 }, { x: gridX, y: gridY + 1 },
                 { x: gridX - 1, y: gridY }, { x: gridX + 1, y: gridY }
             ];
             const validNeighbors = neighbors.filter(n => 
-                !this.obstacles.has(`${n.x},${n.y}`) &&
-                this.isValidTile(n.x, n.y) // <--- Check extra
+                !this.obstacles.has(`${n.x},${n.y}`) && this.isValidTile(n.x, n.y)
             );
-            
-            // ... resto de lógica de evento igual ...
             let bestTile = validNeighbors[0];
             let minDistance = 9999;
             validNeighbors.forEach(tile => {
                 const dist = Phaser.Math.Distance.Between(this.playerGridX, this.playerGridY, tile.x, tile.y);
                 if (dist < minDistance) { minDistance = dist; bestTile = tile; }
             });
-
             if (bestTile) {
                 this.movePlayerToGrid(bestTile.x, bestTile.y, () => {
                     const triggerEvent = this.registry.get('onInteract');
                     if (triggerEvent) triggerEvent({ type: 'math-challenge', id: 1 });
                     const treeSprite = this.children.list.find(c => c.type === 'Sprite' && c.texture.key === 'tree') as Phaser.GameObjects.Sprite;
-                    if (treeSprite) {
-                        this.tweens.add({ targets: treeSprite, scaleX: 1.05, scaleY: 0.95, yoyo: true, duration: 100 });
-                    }
+                    if (treeSprite) this.tweens.add({ targets: treeSprite, scaleX: 1.05, scaleY: 0.95, yoyo: true, duration: 100 });
                 });
             }
         }
@@ -346,22 +314,14 @@ class MainScene extends Phaser.Scene {
     const duration = Math.min(800, Math.max(300, distTiles * 200));
 
     this.player.play('walk', true);
-
-    if (x < this.player.x) {
-        this.player.setFlipX(true);
-    } else {
-        this.player.setFlipX(false);
-    }
+    if (x < this.player.x) this.player.setFlipX(true);
+    else this.player.setFlipX(false);
 
     this.tweens.add({
-      targets: this.player,
-      x: x,
-      y: y,
-      duration: duration,
-      ease: 'Power2',
+      targets: this.player, x: x, y: y, duration: duration, ease: 'Power2',
       onComplete: () => {
           this.player.stop(); 
-          this.player.setFrame(0); // Frame de parado
+          this.player.setFrame(0); 
           if (onArrival) onArrival();
       }
     });
@@ -373,7 +333,8 @@ class MainScene extends Phaser.Scene {
       this.channel.send({
         type: 'broadcast',
         event: 'player-move',
-        payload: { id: this.myPlayerId, x: gridX, y: gridY, color: this.playerColor } as PlayerData,
+        // 👇 ENVIAMOS NOMBRE
+        payload: { id: this.myPlayerId, x: gridX, y: gridY, color: this.playerColor, name: this.playerName } as PlayerData,
       });
     }
   }
@@ -381,29 +342,26 @@ class MainScene extends Phaser.Scene {
   // --- RED ---
   private handleOtherPlayerMove(data: PlayerData): void {
     if (data.id === this.myPlayerId) return;
-    const { x: gridX, y: gridY, color } = data;
+    const { x: gridX, y: gridY, color, name } = data; // <--- LEEMOS NOMBRE
     const { x, y } = this.gridToIso(gridX, gridY);
     
     let other = this.otherPlayers.get(data.id);
     
     if (other) {
       this.tweens.add({
-        targets: other.body,
-        x: x, y: y, duration: 300, ease: 'Power2',
-        onComplete: () => {
-            other.body.stop();
-            other.body.setFrame(0); 
-        }
+        targets: other.body, x: x, y: y, duration: 300, ease: 'Power2',
+        onComplete: () => { other.body.stop(); other.body.setFrame(0); }
       });
 
-      if (color && other.color !== color) {
-        other.body.setTint(color); other.color = color;
-      }
+      if (color && other.color !== color) { other.body.setTint(color); other.color = color; }
       
       other.body.play('walk', true);
       if (x < other.body.x) other.body.setFlipX(true);
       else other.body.setFlipX(false);
-      
+
+      // Actualizar nombre si cambió
+      if (name && other.nameTag.text !== name) other.nameTag.setText(name);
+
     } else {
       const body = this.add.sprite(x, y, 'player');
       body.setOrigin(0.5, 0.8);
@@ -413,7 +371,12 @@ class MainScene extends Phaser.Scene {
       
       body.play('walk');
 
-      this.otherPlayers.set(data.id, { body, gridX, gridY, color: color || 0xff0000 });
+      // 👇 CREAMOS LA ETIQUETA REMOTA
+      const nameTag = this.add.text(x, y - 50, name || "Visitante", {
+        fontSize: '10px', color: '#ffffff', fontFamily: 'Arial', stroke: '#000000', strokeThickness: 2, align: 'center'
+      }).setOrigin(0.5).setDepth(y + 2000);
+
+      this.otherPlayers.set(data.id, { body, nameTag, gridX, gridY, color: color || 0xff0000 });
     }
   }
 
@@ -467,14 +430,16 @@ class MainScene extends Phaser.Scene {
           this.otherPlayers.forEach((playerData, id) => {
               if (!presentIds.has(id) && id !== this.myPlayerId) {
                   playerData.body.destroy();
+                  playerData.nameTag.destroy(); // <--- BORRAR NOMBRE AL SALIR
                   this.otherPlayers.delete(id);
               }
           });
       })
       .subscribe(async (status) => {
         if (status === 'SUBSCRIBED') {
-          await this.channel.track({ id: this.myPlayerId, x: 0, y: 0, color: this.playerColor });
-          this.channel.send({ type: 'broadcast', event: 'player-move', payload: { id: this.myPlayerId, x: 0, y: 0, color: this.playerColor } });
+          // 👇 ENVIAR NOMBRE AL CONECTARSE
+          await this.channel.track({ id: this.myPlayerId, x: 0, y: 0, color: this.playerColor, name: this.playerName });
+          this.channel.send({ type: 'broadcast', event: 'player-move', payload: { id: this.myPlayerId, x: 0, y: 0, color: this.playerColor, name: this.playerName } });
         }
       });
   }
@@ -492,9 +457,10 @@ interface GameCanvasProps {
   onInteract?: (event: InteractionEvent) => void;
   playerColor?: number;
   currentZone?: string; 
+  playerName?: string; // <--- PROP NUEVO
 }
 
-export default function GameCanvas({ onInteract, playerColor = 0xffffff, currentZone }: GameCanvasProps) {
+export default function GameCanvas({ onInteract, playerColor = 0xffffff, currentZone, playerName = "Player" }: GameCanvasProps) {
   const gameRef = useRef<Phaser.Game | null>(null);
   const containerRef = useRef<HTMLDivElement>(null);
 
@@ -512,7 +478,7 @@ export default function GameCanvas({ onInteract, playerColor = 0xffffff, current
       width: window.innerWidth,
       height: window.innerHeight,
       parent: containerRef.current || undefined,
-      scene: new MainScene({ key: 'MainScene', supabaseClient: client, playerId, playerColor }),
+      scene: new MainScene({ key: 'MainScene', supabaseClient: client, playerId, playerColor, playerName }), // <--- PASAR NOMBRE
       physics: { default: 'arcade', arcade: { debug: false } },
       backgroundColor: '#2d5a27',
       scale: {
@@ -537,10 +503,10 @@ export default function GameCanvas({ onInteract, playerColor = 0xffffff, current
         if (scene && scene.player) {
              scene.playerColor = playerColor;
              scene.player.setTint(playerColor);
-             scene.channel?.send({ type: 'broadcast', event: 'player-move', payload: { id: scene.myPlayerId, x: scene.playerGridX, y: scene.playerGridY, color: playerColor } });
+             scene.channel?.send({ type: 'broadcast', event: 'player-move', payload: { id: scene.myPlayerId, x: scene.playerGridX, y: scene.playerGridY, color: playerColor, name: playerName } });
         }
     }
-  }, [playerColor]);
+  }, [playerColor, playerName]);
 
   useEffect(() => {
       if (gameRef.current && currentZone) {

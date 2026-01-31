@@ -5,7 +5,8 @@ import dynamic from 'next/dynamic';
 import MathModal from '@/components/MathModal';
 import WorldMap from '@/components/WorldMap';
 import StoreModal from '@/components/StoreModal';
-import ChatInput from '@/components/ChatInput'; // <--- 1. IMPORTAMOS EL CHAT
+import ChatInput from '@/components/ChatInput'; 
+import LoginModal from '@/components/LoginModal'; // <--- IMPORTANTE
 
 // Cargamos el juego de forma dinámica
 const GameCanvas = dynamic(() => import('@/components/GameCanvas'), { 
@@ -14,6 +15,9 @@ const GameCanvas = dynamic(() => import('@/components/GameCanvas'), {
 });
 
 export default function Home() {
+  // ESTADO DEL JUGADOR
+  const [playerName, setPlayerName] = useState<string>(''); // <--- Estado para el nombre
+
   const [isMathOpen, setIsMathOpen] = useState(false);
   const [isMapOpen, setIsMapOpen] = useState(false);
   const [isStoreOpen, setIsStoreOpen] = useState(false);
@@ -30,18 +34,18 @@ export default function Home() {
     zone: 'Números'
   });
 
-  // EFECTO DE CARGA
+  // CARGA DE DATOS (Incluyendo nombre)
   useEffect(() => {
     if (typeof window !== 'undefined') {
       const savedData = localStorage.getItem('the-grove-save');
       if (savedData) {
         try {
-          const { savedSeeds, savedItems, savedColor, savedItemId } = JSON.parse(savedData);
+          const { savedSeeds, savedItems, savedColor, savedItemId, savedName } = JSON.parse(savedData);
           if (savedSeeds !== undefined) setSeeds(savedSeeds);
           if (savedItems) setOwnedItems(savedItems);
           if (savedColor) setPlayerColor(savedColor);
           if (savedItemId) setSelectedItemId(savedItemId);
-          console.log("📂 Partida cargada correctamente.");
+          if (savedName) setPlayerName(savedName); // <--- Recuperar nombre
         } catch (e) {
           console.error("Error cargando partida:", e);
         }
@@ -49,21 +53,24 @@ export default function Home() {
     }
   }, []);
 
-  // EFECTO DE GUARDADO AUTOMÁTICO
+  // GUARDADO AUTOMÁTICO (Incluyendo nombre)
   useEffect(() => {
-    if (typeof window !== 'undefined') {
+    if (typeof window !== 'undefined' && playerName) {
       const dataToSave = {
         savedSeeds: seeds,
         savedItems: ownedItems,
         savedColor: playerColor,
-        savedItemId: selectedItemId
+        savedItemId: selectedItemId,
+        savedName: playerName // <--- Guardar nombre
       };
       localStorage.setItem('the-grove-save', JSON.stringify(dataToSave));
     }
-  }, [seeds, ownedItems, playerColor, selectedItemId]);
+  }, [seeds, ownedItems, playerColor, selectedItemId, playerName]);
 
-
-  // --- MANEJADORES DE EVENTOS ---
+  // MANEJADORES
+  const handleLogin = (name: string) => {
+    setPlayerName(name);
+  };
 
   const handleInteraction = (event: any) => {
     if (event.type === 'math-challenge') {
@@ -88,6 +95,11 @@ export default function Home() {
     setPlayerColor(item.color);
     setSelectedItemId(item.id);
   };
+
+  // 🛑 SI NO HAY NOMBRE, MOSTRAMOS LOGIN Y BLOQUEAMOS EL JUEGO
+  if (!playerName) {
+    return <LoginModal onLogin={handleLogin} />;
+  }
 
   return (
     <main className="relative w-full h-screen overflow-hidden">
@@ -116,6 +128,11 @@ export default function Home() {
 
         {/* LADO DERECHO: Mapa y Ubicación */}
         <div className="flex flex-col items-end gap-2 pointer-events-auto">
+            {/* 👤 NOMBRE DEL JUGADOR EN EL HUD */}
+            <div className="px-3 py-1 bg-white/90 text-[#2e7d32] text-xs font-black rounded-full border shadow-sm uppercase tracking-wider">
+               👤 {playerName}
+            </div>
+
             <div className="px-4 py-1 bg-[#1b3a1a]/80 text-[#a5d6a7] text-sm font-bold rounded-lg border border-[#2e7d32]">
                 📍 {currentLocation.island} • {currentLocation.zone}
             </div>
@@ -129,19 +146,20 @@ export default function Home() {
         </div>
       </div>
 
-      {/* 👇 2. AQUÍ ESTÁ LA BARRA DE CHAT NUEVA */}
+      {/* BARRA DE CHAT */}
       <div className="absolute bottom-6 left-0 right-0 z-20 flex justify-center px-4 pointer-events-none">
         <ChatInput />
       </div>
 
-      {/* EL JUEGO */}
+      {/* EL JUEGO (Pasamos el playerName) */}
       <GameCanvas 
           onInteract={handleInteraction} 
           currentZone={currentLocation.zone}
           playerColor={playerColor} 
+          playerName={playerName} // <--- NUEVO PROP
       />
 
-      {/* MODAL MATEMÁTICO */}
+      {/* MODALES */}
       <MathModal 
         isOpen={isMathOpen} 
         onClose={() => setIsMathOpen(false)}
@@ -149,15 +167,11 @@ export default function Home() {
         currentZone={currentLocation.zone} 
         currentIsland={currentLocation.island}
       />
-      
-      {/* MODAL DE MAPA */}
       <WorldMap 
         isOpen={isMapOpen}
         onClose={() => setIsMapOpen(false)}
         onTravel={handleTravel}
       />
-
-      {/* MODAL DE TIENDA */}
       <StoreModal 
         isOpen={isStoreOpen}
         onClose={() => setIsStoreOpen(false)}
