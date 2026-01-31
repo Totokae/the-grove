@@ -1,10 +1,10 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react'; // <--- AGREGADO: useEffect
 import dynamic from 'next/dynamic';
 import MathModal from '@/components/MathModal';
 import WorldMap from '@/components/WorldMap';
-import StoreModal from '@/components/StoreModal'; // <--- Importamos la Tienda
+import StoreModal from '@/components/StoreModal';
 
 // Cargamos el juego de forma dinámica
 const GameCanvas = dynamic(() => import('@/components/GameCanvas'), { 
@@ -15,12 +15,12 @@ const GameCanvas = dynamic(() => import('@/components/GameCanvas'), {
 export default function Home() {
   const [isMathOpen, setIsMathOpen] = useState(false);
   const [isMapOpen, setIsMapOpen] = useState(false);
-  const [isStoreOpen, setIsStoreOpen] = useState(false); // <--- Estado de la Tienda
+  const [isStoreOpen, setIsStoreOpen] = useState(false);
 
   // --- ECONOMÍA Y PERSONALIZACIÓN ---
-  const [seeds, setSeeds] = useState(50); // Empezamos con 50 de regalo para probar
-  const [playerColor, setPlayerColor] = useState(0xffffff); // Blanco por defecto
-  const [ownedItems, setOwnedItems] = useState<string[]>(['classic']); // Inventario inicial
+  const [seeds, setSeeds] = useState(50); 
+  const [playerColor, setPlayerColor] = useState(0xffffff); 
+  const [ownedItems, setOwnedItems] = useState<string[]>(['classic']); 
   const [selectedItemId, setSelectedItemId] = useState('classic');
   // ----------------------------------
 
@@ -28,6 +28,47 @@ export default function Home() {
     island: '5° Básico',
     zone: 'Números'
   });
+
+  // 👇 1. EFECTO DE CARGA (Se ejecuta 1 vez al iniciar)
+  useEffect(() => {
+    // Verificamos que estamos en el navegador
+    if (typeof window !== 'undefined') {
+      const savedData = localStorage.getItem('the-grove-save');
+      if (savedData) {
+        try {
+          const { savedSeeds, savedItems, savedColor, savedItemId } = JSON.parse(savedData);
+          
+          // Restauramos los datos si existen
+          if (savedSeeds !== undefined) setSeeds(savedSeeds);
+          if (savedItems) setOwnedItems(savedItems);
+          if (savedColor) setPlayerColor(savedColor);
+          if (savedItemId) setSelectedItemId(savedItemId);
+          
+          console.log("📂 Partida cargada correctamente.");
+        } catch (e) {
+          console.error("Error cargando partida (archivo corrupto o antiguo):", e);
+        }
+      }
+    }
+  }, []);
+
+  // 👇 2. EFECTO DE GUARDADO AUTOMÁTICO
+  // Se ejecuta cada vez que cambian las semillas, items o color
+  useEffect(() => {
+    if (typeof window !== 'undefined') {
+      const dataToSave = {
+        savedSeeds: seeds,
+        savedItems: ownedItems,
+        savedColor: playerColor,
+        savedItemId: selectedItemId
+      };
+      localStorage.setItem('the-grove-save', JSON.stringify(dataToSave));
+      // console.log("💾 Guardado automático.");
+    }
+  }, [seeds, ownedItems, playerColor, selectedItemId]);
+
+
+  // --- MANEJADORES DE EVENTOS ---
 
   const handleInteraction = (event: any) => {
     if (event.type === 'math-challenge') {
@@ -40,12 +81,10 @@ export default function Home() {
     setCurrentLocation({ island, zone });
   };
 
-  // --- LÓGICA DE COMPRA ---
   const handleBuy = (item: any) => {
     if (seeds >= item.price) {
-      setSeeds(prev => prev - item.price); // Cobrar
-      setOwnedItems(prev => [...prev, item.id]); // Agregar al inventario
-      // Equipar automáticamente al comprar (se siente satisfactorio)
+      setSeeds(prev => prev - item.price); 
+      setOwnedItems(prev => [...prev, item.id]); 
       handleEquip(item);
     }
   };
@@ -54,7 +93,6 @@ export default function Home() {
     setPlayerColor(item.color);
     setSelectedItemId(item.id);
   };
-  // -------------------------
 
   return (
     <main className="relative w-full h-screen overflow-hidden">
@@ -103,7 +141,7 @@ export default function Home() {
       <GameCanvas 
           onInteract={handleInteraction} 
           currentZone={currentLocation.zone}
-          playerColor={playerColor} // <--- Pasamos el color al Phaser
+          playerColor={playerColor} 
       />
 
       {/* MODAL MATEMÁTICO */}
