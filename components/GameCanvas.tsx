@@ -8,15 +8,36 @@ import type { RealtimeChannel } from '@supabase/supabase-js';
 // --- CONSTANTES ---
 const TILE_WIDTH = 64;
 const TILE_HEIGHT = 32;
-const GRID_SIZE = 10; 
-const EVENT_TILE = { x: 5, y: 5 }; 
 
-// --- COLORES POR ZONA (Tintes Hexadecimales) ---
+// 👇 AQUÍ DISEÑAS TU SALA (1 = Suelo, 0 = Vacío)
+// Puedes hacer formas de L, cruces, islas, lo que quieras.
+const ROOM_LAYOUT = [
+    [0, 1, 1, 1, 1, 1, 1, 1, 0],
+    [0, 1, 1, 1, 1, 1, 1, 1, 0],
+    [1, 1, 1, 1, 1, 1, 1, 1, 1],
+    [1, 1, 1, 1, 1, 1, 1, 1, 1], // Centro
+    [1, 1, 1, 1, 1, 1, 1, 1, 1],
+    [1, 1, 1, 1, 1, 1, 1, 1, 1],
+    [0, 1, 1, 1, 1, 1, 1, 1, 0],
+    [0, 1, 1, 1, 1, 1, 1, 1, 0],
+    [0, 1, 1, 1, 1, 1, 1, 1, 0]  // Entrada
+];
+
+// Calculamos centro para coordenadas relativas
+const ROWS = ROOM_LAYOUT.length;
+const COLS = ROOM_LAYOUT[0].length;
+const OFFSET_ROW = Math.floor(ROWS / 2);
+const OFFSET_COL = Math.floor(COLS / 2);
+
+// Evento en una casilla válida (Asegúrate que sea un 1 en el mapa)
+const EVENT_TILE = { x: 2, y: 2 }; 
+
+// --- COLORES POR ZONA ---
 const ZONE_TINTS: Record<string, number> = {
-  'Números': 0xcccccc,      // Gris/Verde neutro (Original)
-  'Álgebra': 0xd4e157,      // Amarillo Verdoso (Cálido)
-  'Geometría': 0x4db6ac,    // Verde Azulado (Frío/Tecnológico)
-  'Datos y Azar': 0x81c784  // Verde Hoja Intenso
+  'Números': 0xffffff,
+  'Álgebra': 0xe06767,
+  'Geometría': 0x1FB255,
+  'Datos y Azar': 0x728BE8,
 };
 
 // --- TIPOS ---
@@ -28,7 +49,6 @@ interface PlayerData {
 }
 interface OtherPlayer {
   body: Phaser.GameObjects.Sprite; 
-  face: Phaser.GameObjects.Sprite; 
   gridX: number;
   gridY: number;
   color: number;
@@ -46,10 +66,7 @@ interface ChatData {
 // --- ESCENA PRINCIPAL ---
 class MainScene extends Phaser.Scene {
   private player!: Phaser.Physics.Arcade.Sprite; 
-  private playerFace!: Phaser.GameObjects.Sprite; 
   private pet!: Phaser.Physics.Arcade.Sprite;
-  
-  // <--- NUEVO: Guardamos el fondo para poder cambiarle el color
   private background!: Phaser.GameObjects.TileSprite;
 
   private playerGridX: number = 0;
@@ -80,8 +97,10 @@ class MainScene extends Phaser.Scene {
   }
 
   preload(): void {
-    this.load.image('korok-body', '/korok-body-1.png'); 
-    this.load.image('korok-face', '/korok-face-1.png');
+    this.load.spritesheet('player', '/character.png', { 
+        frameWidth: 32, 
+        frameHeight: 32 
+    });
     this.load.image('pet-seed', '/spirit-seed.png'); 
     this.load.image('grass', '/grass.png'); 
     this.load.image('tree', '/tree.png');
@@ -100,14 +119,26 @@ class MainScene extends Phaser.Scene {
     return { x: gridX, y: gridY };
   }
 
+  // --- VALIDACIÓN DE MAPA (NUEVO) ---
+  private isValidTile(gridX: number, gridY: number): boolean {
+    // Convertir coordenadas centradas (ej: 0,0) a índices de matriz (ej: 5,5)
+    const row = gridY + OFFSET_ROW;
+    const col = gridX + OFFSET_COL;
+
+    // Verificar límites
+    if (row < 0 || row >= ROWS || col < 0 || col >= COLS) return false;
+
+    // Verificar si es suelo (1)
+    return ROOM_LAYOUT[row][col] === 1;
+  }
+
   create(): void {
     this.cameras.main.centerOn(0, 0);
 
-    // <--- NUEVO: Asignamos a this.background
     this.background = this.add.tileSprite(0, 0, 4000, 4000, 'grass');
     this.background.setOrigin(0.5, 0.5);
     this.background.setDepth(-2000); 
-    this.background.setTint(0xcccccc); // Color inicial
+    this.background.setTint(0xcccccc); 
 
     this.gridGraphics = this.add.graphics();
     this.gridGraphics.setDepth(-1000);
@@ -117,29 +148,39 @@ class MainScene extends Phaser.Scene {
 
     this.drawGrid();
 
+    // ÁRBOL
     const { x: treeX, y: treeY } = this.gridToIso(EVENT_TILE.x, EVENT_TILE.y);
     const tree = this.add.sprite(treeX, treeY, 'tree');
     tree.setOrigin(0.5, 0.9);
     tree.setDepth(treeY + 10);
-    
     this.obstacles.add(`${EVENT_TILE.x},${EVENT_TILE.y}`);
 
+    // JUGADOR
     const { x: playerX, y: playerY } = this.gridToIso(0, 0);
     
-    this.player = this.physics.add.sprite(playerX, playerY, 'korok-body'); 
-    this.player.setOrigin(0.5, 1);
+    this.player = this.physics.add.sprite(playerX, playerY, 'player'); 
+    this.player.setOrigin(0.5, 0.8); 
     this.player.setDepth(playerY);
     this.player.setTint(this.playerColor); 
+    this.player.setScale(1.5);
 
-    this.playerFace = this.add.sprite(playerX, playerY, 'korok-face');
-    this.playerFace.setOrigin(0.5, 1);
-    this.playerFace.setDepth(playerY + 1);
+    if (!this.anims.exists('walk')) {
+        this.anims.create({ 
+            key: 'walk', 
+            frames: this.anims.generateFrameNumbers('player', { start: 0, end: 5 }), 
+            frameRate: 10, 
+            repeat: -1 
+        });
+    }
+    this.player.setFrame(0);
 
+    // Input de movimiento
     this.input.on('pointerdown', (pointer: Phaser.Input.Pointer) => {
       const { x: gridX, y: gridY } = this.isoToGrid(pointer.worldX, pointer.worldY);
       this.movePlayerToGrid(gridX, gridY);
     });
 
+    // Chat listener
     this.chatListener = (e: any) => {
         const msg = e.detail;
         this.sendChat(msg);
@@ -149,47 +190,34 @@ class MainScene extends Phaser.Scene {
     this.setupRealtime();
     this.scale.on('resize', this.resize, this);
 
+    // Mascota
     this.pet = this.physics.add.sprite(this.player.x - 50, this.player.y, 'pet-seed');
-    // Arreglo para TypeScript: Solo cambia el tamaño si el cuerpo existe
-if (this.pet.body) {
-  this.pet.body.setSize(16, 16);
-}
+    if (this.pet.body) {
+      this.pet.body.setSize(16, 16);
+    }
   }
 
   resize(gameSize: Phaser.Structs.Size): void {
       this.cameras.main.centerOn(0, 0);
   }
 
-  // <--- NUEVO: Función para cambiar el ambiente visual
   public changeEnvironment(zoneName: string) {
       const tint = ZONE_TINTS[zoneName] || 0xcccccc;
-      
-      // Hacemos una transición suave de color (tween)
       this.tweens.addCounter({
           from: 0,
           to: 100,
           duration: 1000,
           onUpdate: (tween) => {
-              // Interpolar colores es complejo, aquí haremos un cambio directo con fade
-              // O simplemente aplicamos el tinte directo si queremos rendimiento
               this.background.setTint(tint);
           }
       });
-      console.log(`Ambiente cambiado a: ${zoneName} (Tinte: ${tint.toString(16)})`);
   }
 
   update(): void {
     this.player.setDepth(this.player.y);
 
-    if (this.player && this.playerFace) {
-        this.playerFace.setPosition(this.player.x, this.player.y);
-        this.playerFace.setDepth(this.player.depth + 1);
-    }
-
     this.otherPlayers.forEach(p => {
         p.body.setDepth(p.body.y);
-        p.face.setPosition(p.body.x, p.body.y);
-        p.face.setDepth(p.body.depth + 1);
     });
     
     this.chatBubbles.forEach((bubble, id) => {
@@ -207,22 +235,22 @@ if (this.pet.body) {
         this.pet.x = Phaser.Math.Linear(this.pet.x, targetX, 0.08); 
         this.pet.y = Phaser.Math.Linear(this.pet.y, targetY, 0.08);
       }
-
       this.pet.scaleY = 1 + Math.sin(this.time.now / 200) * 0.05;
       this.pet.scaleX = 1 + Math.cos(this.time.now / 200) * 0.05;
       this.pet.setDepth(this.pet.y);
     }
 
+    // Highlight del cursor (SOLO SI ES VÁLIDO)
     const pointer = this.input.activePointer;
     const { x: gx, y: gy } = this.isoToGrid(pointer.worldX, pointer.worldY);
 
     this.highlightGraphics.clear();
-    const offset = Math.floor(GRID_SIZE / 2);
     
-    const isObstacle = this.obstacles.has(`${gx},${gy}`);
-    const cursorColor = isObstacle ? 0xff0000 : 0xffff00; 
-
-    if (gx >= -offset && gx <= offset && gy >= -offset && gy <= offset) {
+    // Solo dibujamos highlight si es una baldosa válida
+    if (this.isValidTile(gx, gy)) {
+        const isObstacle = this.obstacles.has(`${gx},${gy}`);
+        const cursorColor = isObstacle ? 0xff0000 : 0xffff00; 
+        
         const iso = this.gridToIso(gx, gy);
         const points = [
             { x: iso.x, y: iso.y - TILE_HEIGHT / 2 },
@@ -235,16 +263,21 @@ if (this.pet.body) {
     }
   }
 
-  // --- DIBUJO DE GRILLA ---
+  // --- DIBUJADO DE GRILLA BASADO EN MATRIZ (NUEVO) ---
   private drawGrid(): void {
     this.gridGraphics.clear();
     this.gridGraphics.lineStyle(1, 0xffffff, 0.3);
 
-    const offset = Math.floor(GRID_SIZE / 2);
-    
-    for (let x = -offset; x <= offset; x++) {
-      for (let y = -offset; y <= offset; y++) {
-        const iso = this.gridToIso(x, y);
+    for (let row = 0; row < ROWS; row++) {
+      for (let col = 0; col < COLS; col++) {
+        // Si la celda es 0, la saltamos (hueco)
+        if (ROOM_LAYOUT[row][col] === 0) continue;
+
+        // Convertir índice de matriz a coordenadas de juego
+        const gridX = col - OFFSET_COL;
+        const gridY = row - OFFSET_ROW;
+        
+        const iso = this.gridToIso(gridX, gridY);
         const points = [
           { x: iso.x, y: iso.y - TILE_HEIGHT / 2 },
           { x: iso.x + TILE_WIDTH / 2, y: iso.y },
@@ -254,7 +287,8 @@ if (this.pet.body) {
         this.gridGraphics.strokePoints(points, true, true);
       }
     }
-    
+
+    // Dibujar evento solo si está en zona válida (opcional)
     const { x: ex, y: ey } = this.gridToIso(EVENT_TILE.x, EVENT_TILE.y);
     const eventPoints = [
         { x: ex, y: ey - TILE_HEIGHT / 2 },
@@ -266,49 +300,40 @@ if (this.pet.body) {
     this.gridGraphics.fillPoints(eventPoints, true, true);
   }
 
-  // --- MOVIMIENTO ---
+  // --- MOVIMIENTO (ACTUALIZADO CON MATRIZ) ---
   private movePlayerToGrid(gridX: number, gridY: number, onArrival?: () => void): void {
-    const offset = Math.floor(GRID_SIZE / 2);
+    
+    // 1. Verificar si la casilla existe en el diseño de la sala
+    if (!this.isValidTile(gridX, gridY)) return;
 
-    if (gridX < -offset || gridX > offset || gridY < -offset || gridY > offset) return;
-
+    // Manejo de obstáculos
     if (this.obstacles.has(`${gridX},${gridY}`)) {
         if (gridX === EVENT_TILE.x && gridY === EVENT_TILE.y) {
+            // Buscar vecinos, pero verificar que sean baldosas válidas (isValidTile)
             const neighbors = [
-                { x: gridX, y: gridY - 1 },
-                { x: gridX, y: gridY + 1 },
-                { x: gridX - 1, y: gridY },
-                { x: gridX + 1, y: gridY }
+                { x: gridX, y: gridY - 1 }, { x: gridX, y: gridY + 1 },
+                { x: gridX - 1, y: gridY }, { x: gridX + 1, y: gridY }
             ];
-
             const validNeighbors = neighbors.filter(n => 
                 !this.obstacles.has(`${n.x},${n.y}`) &&
-                n.x >= -offset && n.x <= offset &&
-                n.y >= -offset && n.y <= offset
+                this.isValidTile(n.x, n.y) // <--- Check extra
             );
-
+            
+            // ... resto de lógica de evento igual ...
             let bestTile = validNeighbors[0];
             let minDistance = 9999;
-
             validNeighbors.forEach(tile => {
                 const dist = Phaser.Math.Distance.Between(this.playerGridX, this.playerGridY, tile.x, tile.y);
-                if (dist < minDistance) {
-                    minDistance = dist;
-                    bestTile = tile;
-                }
+                if (dist < minDistance) { minDistance = dist; bestTile = tile; }
             });
 
             if (bestTile) {
                 this.movePlayerToGrid(bestTile.x, bestTile.y, () => {
                     const triggerEvent = this.registry.get('onInteract');
                     if (triggerEvent) triggerEvent({ type: 'math-challenge', id: 1 });
-                    
                     const treeSprite = this.children.list.find(c => c.type === 'Sprite' && c.texture.key === 'tree') as Phaser.GameObjects.Sprite;
                     if (treeSprite) {
-                        this.tweens.add({
-                            targets: treeSprite,
-                            scaleX: 1.05, scaleY: 0.95, yoyo: true, duration: 100
-                        });
+                        this.tweens.add({ targets: treeSprite, scaleX: 1.05, scaleY: 0.95, yoyo: true, duration: 100 });
                     }
                 });
             }
@@ -320,6 +345,14 @@ if (this.pet.body) {
     const distTiles = Phaser.Math.Distance.Between(this.playerGridX, this.playerGridY, gridX, gridY);
     const duration = Math.min(800, Math.max(300, distTiles * 200));
 
+    this.player.play('walk', true);
+
+    if (x < this.player.x) {
+        this.player.setFlipX(true);
+    } else {
+        this.player.setFlipX(false);
+    }
+
     this.tweens.add({
       targets: this.player,
       x: x,
@@ -327,6 +360,8 @@ if (this.pet.body) {
       duration: duration,
       ease: 'Power2',
       onComplete: () => {
+          this.player.stop(); 
+          this.player.setFrame(0); // Frame de parado
           if (onArrival) onArrival();
       }
     });
@@ -350,25 +385,35 @@ if (this.pet.body) {
     const { x, y } = this.gridToIso(gridX, gridY);
     
     let other = this.otherPlayers.get(data.id);
+    
     if (other) {
       this.tweens.add({
         targets: other.body,
-        x: x, y: y, duration: 300, ease: 'Power2'
+        x: x, y: y, duration: 300, ease: 'Power2',
+        onComplete: () => {
+            other.body.stop();
+            other.body.setFrame(0); 
+        }
       });
+
       if (color && other.color !== color) {
         other.body.setTint(color); other.color = color;
       }
+      
+      other.body.play('walk', true);
+      if (x < other.body.x) other.body.setFlipX(true);
+      else other.body.setFlipX(false);
+      
     } else {
-      const body = this.add.sprite(x, y, 'korok-body');
-      body.setOrigin(0.5, 1);
+      const body = this.add.sprite(x, y, 'player');
+      body.setOrigin(0.5, 0.8);
       body.setTint(color || 0xff0000);
       body.setDepth(y);
+      body.setScale(1.5);
+      
+      body.play('walk');
 
-      const face = this.add.sprite(x, y, 'korok-face');
-      face.setOrigin(0.5, 1);
-      face.setDepth(y + 1);
-
-      this.otherPlayers.set(data.id, { body, face, gridX, gridY, color: color || 0xff0000 });
+      this.otherPlayers.set(data.id, { body, gridX, gridY, color: color || 0xff0000 });
     }
   }
 
@@ -422,7 +467,6 @@ if (this.pet.body) {
           this.otherPlayers.forEach((playerData, id) => {
               if (!presentIds.has(id) && id !== this.myPlayerId) {
                   playerData.body.destroy();
-                  playerData.face.destroy();
                   this.otherPlayers.delete(id);
               }
           });
@@ -447,7 +491,7 @@ if (this.pet.body) {
 interface GameCanvasProps {
   onInteract?: (event: InteractionEvent) => void;
   playerColor?: number;
-  currentZone?: string; // <--- NUEVO PROP
+  currentZone?: string; 
 }
 
 export default function GameCanvas({ onInteract, playerColor = 0xffffff, currentZone }: GameCanvasProps) {
@@ -483,12 +527,10 @@ export default function GameCanvas({ onInteract, playerColor = 0xffffff, current
     return () => { gameRef.current?.destroy(true); };
   }, []);
 
-  // UseEffect para actualizar onInteract
   useEffect(() => {
     if (gameRef.current && onInteract) gameRef.current.registry.set('onInteract', onInteract);
   }, [onInteract]);
 
-  // UseEffect para actualizar Color y Movimiento
   useEffect(() => {
     if (gameRef.current) {
         const scene = gameRef.current.scene.getScene('MainScene') as any;
@@ -500,7 +542,6 @@ export default function GameCanvas({ onInteract, playerColor = 0xffffff, current
     }
   }, [playerColor]);
 
-  // <--- NUEVO: UseEffect para detectar cambio de ZONA
   useEffect(() => {
       if (gameRef.current && currentZone) {
           const scene = gameRef.current.scene.getScene('MainScene') as MainScene;
