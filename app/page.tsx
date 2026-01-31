@@ -1,10 +1,11 @@
 'use client';
 
-import { useState, useEffect } from 'react'; // <--- AGREGADO: useEffect
+import { useState, useEffect } from 'react';
 import dynamic from 'next/dynamic';
 import MathModal from '@/components/MathModal';
 import WorldMap from '@/components/WorldMap';
 import StoreModal from '@/components/StoreModal';
+import ChatInput from '@/components/ChatInput'; // <--- 1. IMPORTAMOS EL CHAT
 
 // Cargamos el juego de forma dinámica
 const GameCanvas = dynamic(() => import('@/components/GameCanvas'), { 
@@ -29,31 +30,26 @@ export default function Home() {
     zone: 'Números'
   });
 
-  // 👇 1. EFECTO DE CARGA (Se ejecuta 1 vez al iniciar)
+  // EFECTO DE CARGA
   useEffect(() => {
-    // Verificamos que estamos en el navegador
     if (typeof window !== 'undefined') {
       const savedData = localStorage.getItem('the-grove-save');
       if (savedData) {
         try {
           const { savedSeeds, savedItems, savedColor, savedItemId } = JSON.parse(savedData);
-          
-          // Restauramos los datos si existen
           if (savedSeeds !== undefined) setSeeds(savedSeeds);
           if (savedItems) setOwnedItems(savedItems);
           if (savedColor) setPlayerColor(savedColor);
           if (savedItemId) setSelectedItemId(savedItemId);
-          
           console.log("📂 Partida cargada correctamente.");
         } catch (e) {
-          console.error("Error cargando partida (archivo corrupto o antiguo):", e);
+          console.error("Error cargando partida:", e);
         }
       }
     }
   }, []);
 
-  // 👇 2. EFECTO DE GUARDADO AUTOMÁTICO
-  // Se ejecuta cada vez que cambian las semillas, items o color
+  // EFECTO DE GUARDADO AUTOMÁTICO
   useEffect(() => {
     if (typeof window !== 'undefined') {
       const dataToSave = {
@@ -63,7 +59,6 @@ export default function Home() {
         savedItemId: selectedItemId
       };
       localStorage.setItem('the-grove-save', JSON.stringify(dataToSave));
-      // console.log("💾 Guardado automático.");
     }
   }, [seeds, ownedItems, playerColor, selectedItemId]);
 
@@ -102,20 +97,17 @@ export default function Home() {
         
         {/* LADO IZQUIERDO: Semillas y Tienda */}
         <div className="pointer-events-auto flex items-center gap-2">
-            {/* Marcador de Semillas */}
             <div className="px-6 py-2 bg-black/60 backdrop-blur-md rounded-full border border-white/20 text-white font-bold shadow-lg flex items-center gap-3">
               <span>🌱 Semillas:</span>
               <span className="text-yellow-400 text-xl">{seeds}</span>
             </div>
 
-            {/* Botón de Tienda */}
             <button 
                 onClick={() => setIsStoreOpen(true)}
                 className="w-12 h-12 bg-[#ff8f00] hover:bg-[#f57c00] rounded-full border-2 border-white/50 shadow-lg flex items-center justify-center text-2xl transition-transform active:scale-95 group relative"
                 title="Abrir Tienda"
             >
                 🛍️
-                {/* Notificación si tienes semillas */}
                 {seeds >= 50 && (
                   <span className="absolute -top-1 -right-1 w-4 h-4 bg-red-500 rounded-full border-2 border-white animate-pulse" />
                 )}
@@ -135,6 +127,11 @@ export default function Home() {
                 🗺️ ABRIR MAPA
             </button>
         </div>
+      </div>
+
+      {/* 👇 2. AQUÍ ESTÁ LA BARRA DE CHAT NUEVA */}
+      <div className="absolute bottom-6 left-0 right-0 z-20 flex justify-center px-4 pointer-events-none">
+        <ChatInput />
       </div>
 
       {/* EL JUEGO */}
