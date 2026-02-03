@@ -9,7 +9,7 @@ import type { RealtimeChannel } from '@supabase/supabase-js';
 const TILE_WIDTH = 64;
 const TILE_HEIGHT = 32;
 
-// 👇 DISEÑO DE SALA (TU MATRIZ ORIGINAL)
+// 👇 TU DISEÑO DE SALA ORIGINAL (MANTENIDO)
 const ROOM_LAYOUT = [
     [0, 1, 1, 1, 1, 1, 1, 1, 0],
     [0, 1, 1, 1, 1, 1, 1, 1, 0],
@@ -22,15 +22,12 @@ const ROOM_LAYOUT = [
     [0, 1, 1, 1, 1, 1, 1, 1, 0]  // Entrada
 ];
 
-// Calculamos centro
 const ROWS = ROOM_LAYOUT.length;
 const COLS = ROOM_LAYOUT[0].length;
 const OFFSET_ROW = Math.floor(ROWS / 2);
 const OFFSET_COL = Math.floor(COLS / 2);
-
 const EVENT_TILE = { x: 2, y: 2 }; 
 
-// --- COLORES POR ZONA ---
 const ZONE_TINTS: Record<string, number> = {
   'Números': 0xffffff,
   'Álgebra': 0xe06767,
@@ -38,35 +35,53 @@ const ZONE_TINTS: Record<string, number> = {
   'Datos y Azar': 0x728BE8,
 };
 
-// --- TIPOS (ACTUALIZADOS CON NOMBRE) ---
+// --- TIPOS ACTUALIZADOS PARA 3 CAPAS ---
 interface PlayerData {
   id: string;
   x: number;
   y: number;
-  color?: number;
-  name?: string; // <--- NUEVO: Nombre para red
+  name?: string;
+  // Personalización
+  bodyColor: number;
+  faceColor: number;
+  hairColor: number;
 }
+
 interface OtherPlayer {
   body: Phaser.GameObjects.Sprite; 
-  nameTag: Phaser.GameObjects.Text; // <--- NUEVO: Etiqueta visual
+  face: Phaser.GameObjects.Sprite; // Capa Cara
+  hair: Phaser.GameObjects.Sprite; // Capa Pelo
+  nameTag: Phaser.GameObjects.Text;
   gridX: number;
   gridY: number;
-  color: number;
+  // Guardamos colores para referencia
+  bodyColor: number;
+  faceColor: number;
+  hairColor: number;
 }
+
 interface InteractionEvent { type: string; id: number; }
 interface ChatData { type: 'chat'; message: string; id: string; }
 
 // --- ESCENA PRINCIPAL ---
 class MainScene extends Phaser.Scene {
-  private player!: Phaser.Physics.Arcade.Sprite; 
-  private playerNameTag!: Phaser.GameObjects.Text; // <--- NUEVO
+  // JUGADOR LOCAL (3 Partes)
+  private playerBody!: Phaser.Physics.Arcade.Sprite; 
+  private playerFace!: Phaser.GameObjects.Sprite;
+  private playerHair!: Phaser.GameObjects.Sprite;
+  private playerNameTag!: Phaser.GameObjects.Text;
+
   private pet!: Phaser.Physics.Arcade.Sprite;
   private background!: Phaser.GameObjects.TileSprite;
 
   private playerGridX: number = 0;
   private playerGridY: number = 0;
-  private playerColor: number = 0xffffff;
-  private playerName: string = "Player"; // <--- NUEVO
+  
+  // Colores y Nombre
+  private bodyColor: number = 0xffffff;
+  private faceColor: number = 0xffffff;
+  private hairColor: number = 0xffffff;
+  private playerName: string = "Player";
 
   private obstacles: Set<string> = new Set(); 
 
@@ -83,22 +98,27 @@ class MainScene extends Phaser.Scene {
   constructor(config?: Phaser.Types.Scenes.SettingsConfig & {
     supabaseClient?: SupabaseClient;
     playerId?: string;
-    playerColor?: number;
-    playerName?: string; // <--- RECIBIR NOMBRE
+    bodyColor?: number;
+    faceColor?: number;
+    hairColor?: number;
+    playerName?: string;
   }) {
     super({ key: 'MainScene', ...config });
     if (config?.supabaseClient) this.supabaseClient = config.supabaseClient;
     if (config?.playerId) this.myPlayerId = config.playerId;
-    if (config?.playerColor !== undefined) this.playerColor = config.playerColor;
     if (config?.playerName) this.playerName = config.playerName;
+    
+    if (config?.bodyColor !== undefined) this.bodyColor = config.bodyColor;
+    if (config?.faceColor !== undefined) this.faceColor = config.faceColor;
+    if (config?.hairColor !== undefined) this.hairColor = config.hairColor;
   }
 
   preload(): void {
-    // 👇 MANTENEMOS TU SPRITE DE 32PX (IMPORTANTE)
-    this.load.spritesheet('player', '/character.png', { 
-        frameWidth: 32, 
-        frameHeight: 32 
-    });
+    // 👇 CARGAMOS LAS 3 CAPAS (Asegúrate de tener estos archivos en /public)
+    this.load.spritesheet('body', '/body.png', { frameWidth: 32, frameHeight: 32 });
+    this.load.spritesheet('face', '/face.png', { frameWidth: 32, frameHeight: 32 });
+    this.load.spritesheet('hair', '/hair.png', { frameWidth: 32, frameHeight: 32 });
+    
     this.load.image('pet-seed', '/spirit-seed.png'); 
     this.load.image('grass', '/grass.png'); 
     this.load.image('tree', '/tree.png');
@@ -144,33 +164,44 @@ class MainScene extends Phaser.Scene {
     tree.setDepth(treeY + 10);
     this.obstacles.add(`${EVENT_TILE.x},${EVENT_TILE.y}`);
 
-    // JUGADOR
+    // --- CREACIÓN DEL JUGADOR (3 CAPAS) ---
     const { x: playerX, y: playerY } = this.gridToIso(0, 0);
-    this.player = this.physics.add.sprite(playerX, playerY, 'player'); 
-    this.player.setOrigin(0.5, 0.8); 
-    this.player.setDepth(playerY);
-    this.player.setTint(this.playerColor); 
-    this.player.setScale(1.5);
 
-    // 👇 CREAMOS EL NOMBRE FLOTANTE
+    // 1. CUERPO (Tiene la física)
+    this.playerBody = this.physics.add.sprite(playerX, playerY, 'body'); 
+    this.playerBody.setOrigin(0.5, 0.8); 
+    this.playerBody.setDepth(playerY);
+    this.playerBody.setTint(this.bodyColor); 
+    this.playerBody.setScale(1.5);
+
+    // 2. CARA
+    this.playerFace = this.add.sprite(playerX, playerY, 'face');
+    this.playerFace.setOrigin(0.5, 0.8);
+    this.playerFace.setDepth(playerY + 1);
+    this.playerFace.setTint(this.faceColor);
+    this.playerFace.setScale(1.5);
+
+    // 3. PELO
+    this.playerHair = this.add.sprite(playerX, playerY, 'hair');
+    this.playerHair.setOrigin(0.5, 0.8);
+    this.playerHair.setDepth(playerY + 2); 
+    this.playerHair.setTint(this.hairColor);
+    this.playerHair.setScale(1.5);
+
+    // Nombre
     this.playerNameTag = this.add.text(playerX, playerY - 50, this.playerName, {
-        fontSize: '12px',
-        color: '#ffffff',
-        fontFamily: 'Arial',
-        stroke: '#000000',
-        strokeThickness: 3,
-        align: 'center'
+        fontSize: '12px', color: '#ffffff', fontFamily: 'Arial', stroke: '#000000', strokeThickness: 3, align: 'center'
     }).setOrigin(0.5).setDepth(playerY + 2000);
 
-    if (!this.anims.exists('walk')) {
-        this.anims.create({ 
-            key: 'walk', 
-            frames: this.anims.generateFrameNumbers('player', { start: 0, end: 5 }), 
-            frameRate: 10, 
-            repeat: -1 
-        });
-    }
-    this.player.setFrame(0);
+    // ANIMACIONES (Genéricas para las 3 partes)
+    const animConfig = { frameRate: 10, repeat: -1 };
+    
+    // Si tus spritesheets tienen la misma cantidad de frames, usamos la misma lógica
+    this.anims.create({ key: 'walk-body', frames: this.anims.generateFrameNumbers('body', { start: 0, end: 5 }), ...animConfig });
+    this.anims.create({ key: 'walk-face', frames: this.anims.generateFrameNumbers('face', { start: 0, end: 5 }), ...animConfig });
+    this.anims.create({ key: 'walk-hair', frames: this.anims.generateFrameNumbers('hair', { start: 0, end: 5 }), ...animConfig });
+
+    this.playerBody.setFrame(0);
 
     this.input.on('pointerdown', (pointer: Phaser.Input.Pointer) => {
       const { x: gridX, y: gridY } = this.isoToGrid(pointer.worldX, pointer.worldY);
@@ -183,7 +214,7 @@ class MainScene extends Phaser.Scene {
     this.setupRealtime();
     this.scale.on('resize', this.resize, this);
 
-    this.pet = this.physics.add.sprite(this.player.x - 50, this.player.y, 'pet-seed');
+    this.pet = this.physics.add.sprite(this.playerBody.x - 50, this.playerBody.y, 'pet-seed');
     if (this.pet.body) this.pet.body.setSize(16, 16);
   }
 
@@ -198,28 +229,39 @@ class MainScene extends Phaser.Scene {
   }
 
   update(): void {
-    this.player.setDepth(this.player.y);
+    // Sincronizar Profundidad y Posición
+    const depth = this.playerBody.y;
+    this.playerBody.setDepth(depth);
     
-    // 👇 ACTUALIZAR NOMBRE LOCAL
-    this.playerNameTag.setPosition(this.player.x, this.player.y - 50);
-    this.playerNameTag.setDepth(this.player.depth + 2000);
+    this.playerFace.setPosition(this.playerBody.x, this.playerBody.y);
+    this.playerFace.setDepth(depth + 1);
+    this.playerFace.setFlipX(this.playerBody.flipX);
+    
+    this.playerHair.setPosition(this.playerBody.x, this.playerBody.y);
+    this.playerHair.setDepth(depth + 2);
+    this.playerHair.setFlipX(this.playerBody.flipX);
 
-    // 👇 ACTUALIZAR NOMBRES REMOTOS
+    this.playerNameTag.setPosition(this.playerBody.x, this.playerBody.y - 50);
+    this.playerNameTag.setDepth(depth + 2000);
+
+    // Otros Jugadores
     this.otherPlayers.forEach(p => {
-        p.body.setDepth(p.body.y);
-        p.nameTag.setPosition(p.body.x, p.body.y - 50);
-        p.nameTag.setDepth(p.body.depth + 2000);
+        const pDepth = p.body.y;
+        p.body.setDepth(pDepth);
+        p.face.setPosition(p.body.x, p.body.y).setDepth(pDepth + 1).setFlipX(p.body.flipX);
+        p.hair.setPosition(p.body.x, p.body.y).setDepth(pDepth + 2).setFlipX(p.body.flipX);
+        p.nameTag.setPosition(p.body.x, p.body.y - 50).setDepth(pDepth + 2000);
     });
     
     this.chatBubbles.forEach((bubble, id) => {
-        const target = (id === this.myPlayerId) ? this.player : this.otherPlayers.get(id)?.body;
+        const target = (id === this.myPlayerId) ? this.playerBody : this.otherPlayers.get(id)?.body;
         if (target) bubble.x = target.x;
         else { bubble.destroy(); this.chatBubbles.delete(id); }
     });
 
-    if (this.pet && this.player) {
-      const targetX = this.player.x - 30; 
-      const targetY = this.player.y - 40; 
+    if (this.pet && this.playerBody) {
+      const targetX = this.playerBody.x - 30; 
+      const targetY = this.playerBody.y - 40; 
       const distance = Phaser.Math.Distance.Between(this.pet.x, this.pet.y, targetX, targetY);
       if (distance > 3) {
         this.pet.x = Phaser.Math.Linear(this.pet.x, targetX, 0.08); 
@@ -313,15 +355,20 @@ class MainScene extends Phaser.Scene {
     const distTiles = Phaser.Math.Distance.Between(this.playerGridX, this.playerGridY, gridX, gridY);
     const duration = Math.min(800, Math.max(300, distTiles * 200));
 
-    this.player.play('walk', true);
-    if (x < this.player.x) this.player.setFlipX(true);
-    else this.player.setFlipX(false);
+    // ANIMAR LAS 3 CAPAS
+    this.playerBody.play('walk-body', true);
+    this.playerFace.play('walk-face', true);
+    this.playerHair.play('walk-hair', true);
+
+    if (x < this.playerBody.x) this.playerBody.setFlipX(true);
+    else this.playerBody.setFlipX(false);
 
     this.tweens.add({
-      targets: this.player, x: x, y: y, duration: duration, ease: 'Power2',
+      targets: this.playerBody, x: x, y: y, duration: duration, ease: 'Power2',
       onComplete: () => {
-          this.player.stop(); 
-          this.player.setFrame(0); 
+          this.playerBody.stop(); this.playerBody.setFrame(0);
+          this.playerFace.stop(); this.playerFace.setFrame(0);
+          this.playerHair.stop(); this.playerHair.setFrame(0);
           if (onArrival) onArrival();
       }
     });
@@ -333,8 +380,11 @@ class MainScene extends Phaser.Scene {
       this.channel.send({
         type: 'broadcast',
         event: 'player-move',
-        // 👇 ENVIAMOS NOMBRE
-        payload: { id: this.myPlayerId, x: gridX, y: gridY, color: this.playerColor, name: this.playerName } as PlayerData,
+        // 👇 ENVIAR TODA LA DATA
+        payload: { 
+            id: this.myPlayerId, x: gridX, y: gridY, name: this.playerName,
+            bodyColor: this.bodyColor, faceColor: this.faceColor, hairColor: this.hairColor
+        } as PlayerData,
       });
     }
   }
@@ -342,7 +392,7 @@ class MainScene extends Phaser.Scene {
   // --- RED ---
   private handleOtherPlayerMove(data: PlayerData): void {
     if (data.id === this.myPlayerId) return;
-    const { x: gridX, y: gridY, color, name } = data; // <--- LEEMOS NOMBRE
+    const { x: gridX, y: gridY, name, bodyColor, faceColor, hairColor } = data;
     const { x, y } = this.gridToIso(gridX, gridY);
     
     let other = this.otherPlayers.get(data.id);
@@ -350,39 +400,51 @@ class MainScene extends Phaser.Scene {
     if (other) {
       this.tweens.add({
         targets: other.body, x: x, y: y, duration: 300, ease: 'Power2',
-        onComplete: () => { other.body.stop(); other.body.setFrame(0); }
+        onComplete: () => { 
+            other?.body.stop(); other?.body.setFrame(0);
+            other?.face.stop(); other?.face.setFrame(0);
+            other?.hair.stop(); other?.hair.setFrame(0);
+        }
       });
 
-      if (color && other.color !== color) { other.body.setTint(color); other.color = color; }
+      // Actualizar colores remotos
+      if (bodyColor !== other.bodyColor) { other.body.setTint(bodyColor); other.bodyColor = bodyColor; }
+      if (faceColor !== other.faceColor) { other.face.setTint(faceColor); other.faceColor = faceColor; }
+      if (hairColor !== other.hairColor) { other.hair.setTint(hairColor); other.hairColor = hairColor; }
       
-      other.body.play('walk', true);
+      other.body.play('walk-body', true);
+      other.face.play('walk-face', true);
+      other.hair.play('walk-hair', true);
+
       if (x < other.body.x) other.body.setFlipX(true);
       else other.body.setFlipX(false);
 
-      // Actualizar nombre si cambió
       if (name && other.nameTag.text !== name) other.nameTag.setText(name);
 
     } else {
-      const body = this.add.sprite(x, y, 'player');
-      body.setOrigin(0.5, 0.8);
-      body.setTint(color || 0xff0000);
-      body.setDepth(y);
-      body.setScale(1.5);
+      // Crear Jugador Remoto (3 Capas)
+      const body = this.add.sprite(x, y, 'body').setOrigin(0.5, 0.8).setDepth(y).setScale(1.5).setTint(bodyColor);
+      const face = this.add.sprite(x, y, 'face').setOrigin(0.5, 0.8).setDepth(y+1).setScale(1.5).setTint(faceColor);
+      const hair = this.add.sprite(x, y, 'hair').setOrigin(0.5, 0.8).setDepth(y+2).setScale(1.5).setTint(hairColor);
       
-      body.play('walk');
+      body.play('walk-body');
+      face.play('walk-face');
+      hair.play('walk-hair');
 
-      // 👇 CREAMOS LA ETIQUETA REMOTA
       const nameTag = this.add.text(x, y - 50, name || "Visitante", {
         fontSize: '10px', color: '#ffffff', fontFamily: 'Arial', stroke: '#000000', strokeThickness: 2, align: 'center'
       }).setOrigin(0.5).setDepth(y + 2000);
 
-      this.otherPlayers.set(data.id, { body, nameTag, gridX, gridY, color: color || 0xff0000 });
+      this.otherPlayers.set(data.id, { 
+          body, face, hair, nameTag, gridX, gridY, 
+          bodyColor, faceColor, hairColor 
+      });
     }
   }
 
   private sendChat(message: string): void {
     if (!message.trim()) return;
-    this.createChatBubble(this.player, message.trim(), this.myPlayerId);
+    this.createChatBubble(this.playerBody, message.trim(), this.myPlayerId);
     if (this.channel) {
       this.channel.send({
         type: 'broadcast', event: 'chat',
@@ -393,7 +455,7 @@ class MainScene extends Phaser.Scene {
 
   private handleChatMessage(data: ChatData): void {
     const { id, message } = data;
-    let targetSprite = (id === this.myPlayerId) ? this.player : (this.otherPlayers.get(id)?.body || null);
+    let targetSprite = (id === this.myPlayerId) ? this.playerBody : (this.otherPlayers.get(id)?.body || null);
     if (targetSprite) this.createChatBubble(targetSprite, message, id);
   }
 
@@ -430,16 +492,23 @@ class MainScene extends Phaser.Scene {
           this.otherPlayers.forEach((playerData, id) => {
               if (!presentIds.has(id) && id !== this.myPlayerId) {
                   playerData.body.destroy();
-                  playerData.nameTag.destroy(); // <--- BORRAR NOMBRE AL SALIR
+                  playerData.face.destroy();
+                  playerData.hair.destroy();
+                  playerData.nameTag.destroy();
                   this.otherPlayers.delete(id);
               }
           });
       })
       .subscribe(async (status) => {
         if (status === 'SUBSCRIBED') {
-          // 👇 ENVIAR NOMBRE AL CONECTARSE
-          await this.channel.track({ id: this.myPlayerId, x: 0, y: 0, color: this.playerColor, name: this.playerName });
-          this.channel.send({ type: 'broadcast', event: 'player-move', payload: { id: this.myPlayerId, x: 0, y: 0, color: this.playerColor, name: this.playerName } });
+          await this.channel.track({ id: this.myPlayerId, x: 0, y: 0, name: this.playerName });
+          this.channel.send({ 
+              type: 'broadcast', event: 'player-move', 
+              payload: { 
+                  id: this.myPlayerId, x: 0, y: 0, name: this.playerName,
+                  bodyColor: this.bodyColor, faceColor: this.faceColor, hairColor: this.hairColor
+              } as PlayerData 
+          });
         }
       });
   }
@@ -455,12 +524,19 @@ class MainScene extends Phaser.Scene {
 // --- COMPONENTE REACT ---
 interface GameCanvasProps {
   onInteract?: (event: InteractionEvent) => void;
-  playerColor?: number;
   currentZone?: string; 
-  playerName?: string; // <--- PROP NUEVO
+  playerName?: string;
+  // Colores
+  bodyColor?: number;
+  faceColor?: number;
+  hairColor?: number;
 }
 
-export default function GameCanvas({ onInteract, playerColor = 0xffffff, currentZone, playerName = "Player" }: GameCanvasProps) {
+export default function GameCanvas({ 
+    onInteract, currentZone, playerName = "Player", 
+    bodyColor = 0xffffff, faceColor = 0xffffff, hairColor = 0xffffff 
+}: GameCanvasProps) {
+  
   const gameRef = useRef<Phaser.Game | null>(null);
   const containerRef = useRef<HTMLDivElement>(null);
 
@@ -478,35 +554,51 @@ export default function GameCanvas({ onInteract, playerColor = 0xffffff, current
       width: window.innerWidth,
       height: window.innerHeight,
       parent: containerRef.current || undefined,
-      scene: new MainScene({ key: 'MainScene', supabaseClient: client, playerId, playerColor, playerName }), // <--- PASAR NOMBRE
+      scene: new MainScene({ 
+          key: 'MainScene', supabaseClient: client, playerId, 
+          playerName, bodyColor, faceColor, hairColor 
+      }), 
       physics: { default: 'arcade', arcade: { debug: false } },
       backgroundColor: '#2d5a27',
-      scale: {
-          mode: Phaser.Scale.RESIZE,
-          autoCenter: Phaser.Scale.CENTER_BOTH
-      }
+      scale: { mode: Phaser.Scale.RESIZE, autoCenter: Phaser.Scale.CENTER_BOTH }
     };
 
     gameRef.current = new Phaser.Game(config);
     if (onInteract) gameRef.current.registry.set('onInteract', onInteract);
 
     return () => { gameRef.current?.destroy(true); };
-  }, []);
+  }, []); 
 
   useEffect(() => {
     if (gameRef.current && onInteract) gameRef.current.registry.set('onInteract', onInteract);
   }, [onInteract]);
 
+  // Actualizar colores en caliente (Hot Update)
   useEffect(() => {
     if (gameRef.current) {
         const scene = gameRef.current.scene.getScene('MainScene') as any;
-        if (scene && scene.player) {
-             scene.playerColor = playerColor;
-             scene.player.setTint(playerColor);
-             scene.channel?.send({ type: 'broadcast', event: 'player-move', payload: { id: scene.myPlayerId, x: scene.playerGridX, y: scene.playerGridY, color: playerColor, name: playerName } });
+        if (scene && scene.playerBody) {
+             // Actualizar localmente
+             scene.playerBody.setTint(bodyColor);
+             scene.playerFace.setTint(faceColor);
+             scene.playerHair.setTint(hairColor);
+             
+             // Actualizar variables internas
+             scene.bodyColor = bodyColor;
+             scene.faceColor = faceColor;
+             scene.hairColor = hairColor;
+
+             // Notificar a red
+             scene.channel?.send({ 
+                 type: 'broadcast', event: 'player-move', 
+                 payload: { 
+                     id: scene.myPlayerId, x: scene.playerGridX, y: scene.playerGridY, 
+                     name: playerName, bodyColor, faceColor, hairColor 
+                 } 
+             });
         }
     }
-  }, [playerColor, playerName]);
+  }, [bodyColor, faceColor, hairColor, playerName]);
 
   useEffect(() => {
       if (gameRef.current && currentZone) {
