@@ -9,6 +9,7 @@ import StoreModal from '@/components/StoreModal';
 import ChatInput from '@/components/ChatInput'; 
 import CharacterCreator from '@/components/CharacterCreator'; 
 import DialogModal from '@/components/DialogModal';
+import ToolModal from '@/components/ToolModal'; // 👈 1. IMPORTAR EL NUEVO MODAL
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -40,17 +41,21 @@ export default function Home() {
   const [isDialogOpen, setIsDialogOpen] = useState(false);
   const [dialogContent, setDialogContent] = useState({ name: '', text: '' });
 
-  // 👇 ESTADOS DE MISIÓN PERSISTENTE
+  // 👇 2. NUEVOS ESTADOS PARA HERRAMIENTAS INTERACTIVAS
+  const [isToolOpen, setIsToolOpen] = useState(false);
+  const [currentToolId, setCurrentToolId] = useState<string>('');
+
+  // ESTADOS DE MISIÓN PERSISTENTE
   const [questProgress, setQuestProgress] = useState(0); 
   const [collectedItemsList, setCollectedItemsList] = useState<string[]>([]);
   
   const [currentChallengeSource, setCurrentChallengeSource] = useState<'tree' | 'fruit' | null>(null); 
-  const [currentFruitId, setCurrentFruitId] = useState<string | null>(null); // Para saber qué fruta borrar de DB
+  const [currentFruitId, setCurrentFruitId] = useState<string | null>(null); 
   
   const [isQuestMinimized, setIsQuestMinimized] = useState(false);
   const [currentLocation, setCurrentLocation] = useState({ island: '5° Básico', zone: 'Números' });
 
-  // 👇 CARGA INICIAL COMPLETA (Datos + Misión)
+  // CARGA INICIAL COMPLETA
   const handleLoginComplete = async (data: any) => {
       setPlayerData({
           name: data.name,
@@ -62,7 +67,6 @@ export default function Home() {
       });
       setSeeds(data.seeds); 
 
-      // RECUPERAR MISIONES DE SUPABASE
       const { data: questData } = await supabase
         .from('players')
         .select('quest_progress, collected_items')
@@ -87,8 +91,17 @@ export default function Home() {
       }
   };
 
+  // 👇 3. MANEJADOR DE INTERACCIONES ACTUALIZADO
   const handleInteraction = (event: { type: string; id: string }) => {
-    if (event.type === 'npc-dialog') {
+    console.log("Evento recibido en Page:", event);
+
+    // CASO: Hoja de estudio / Herramienta
+    if (event.type === 'open-tool') {
+      setCurrentToolId(event.id);
+      setIsToolOpen(true);
+    }
+    // CASO: Diálogo con NPC
+    else if (event.type === 'npc-dialog') {
       if (questProgress >= 3) {
           setDialogContent({ name: "Prof. Ray Z.", text: DIALOGS['mission-complete'] });
       } else {
@@ -97,18 +110,19 @@ export default function Home() {
       }
       setIsDialogOpen(true);
     }
+    // CASO: Desafío de Árbol
     else if (event.type === 'math-challenge') {
       setCurrentChallengeSource('tree');
       setIsMathOpen(true);
     } 
+    // CASO: Recoger Fruta
     else if (event.type === 'collect-item') {
       setCurrentChallengeSource('fruit');
-      setCurrentFruitId(event.id); // Guardamos qué fruta es
+      setCurrentFruitId(event.id);
       setIsMathOpen(true); 
     }
   };
 
-  // 👇 GUARDADO DE MISIÓN EN DB
   const handleMathSuccess = async () => {
       handleUpdateSeeds(seeds + 10); 
       
@@ -119,7 +133,6 @@ export default function Home() {
           setQuestProgress(newProgress);
           setCollectedItemsList(newList);
 
-          // GUARDAR EN SUPABASE
           if (playerData) {
               await supabase.from('players').update({ 
                   quest_progress: newProgress,
@@ -140,6 +153,7 @@ export default function Home() {
   return (
     <main className="relative w-full h-screen overflow-hidden">
       
+      {/* HUD */}
       <div className="absolute top-4 left-4 right-4 z-10 flex justify-between items-start pointer-events-none">
         <div className="pointer-events-auto flex items-center gap-2">
             <div className="px-6 py-2 bg-black/60 backdrop-blur-md rounded-full border border-white/20 text-white font-bold shadow-lg flex items-center gap-3">
@@ -201,13 +215,24 @@ export default function Home() {
           initialY={playerData.gridY}
           onMove={handlePlayerMove}
           onInteract={handleInteraction}
-          initialCollectedItems={collectedItemsList} // 👈 PASAMOS LA LISTA AL JUEGO
+          initialCollectedItems={collectedItemsList}
       />
 
+      {/* MODALES */}
       <DialogModal isOpen={isDialogOpen} onClose={() => setIsDialogOpen(false)} npcName={dialogContent.name} text={dialogContent.text} />
+      
       <MathModal isOpen={isMathOpen} onClose={() => setIsMathOpen(false)} onSuccess={handleMathSuccess} currentZone={currentLocation.zone} currentIsland={currentLocation.island} />
+      
       <WorldMap isOpen={isMapOpen} onClose={() => setIsMapOpen(false)} onTravel={(i, z) => setCurrentLocation({ island: i, zone: z })} />
+      
       <StoreModal isOpen={isStoreOpen} onClose={() => setIsStoreOpen(false)} currentSeeds={seeds} ownedItems={[]} selectedItem="classic" onBuy={() => {}} onEquip={() => {}} />
+
+      {/* 👇 4. RENDERIZAR EL MODAL DE HERRAMIENTAS */}
+      <ToolModal 
+        isOpen={isToolOpen} 
+        onClose={() => setIsToolOpen(false)} 
+        toolId={currentToolId} 
+      />
       
     </main>
   );
