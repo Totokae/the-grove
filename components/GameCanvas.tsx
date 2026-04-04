@@ -11,7 +11,6 @@ const TILE_HEIGHT = 32;
 const BLOCK_OFFSET = 32;
 
 // Mapa de rutas a archivos JSON por zona
-// Mapa de rutas a archivos JSON por zona
 const ZONE_MAPS: Record<string, string> = {
     // --- HUB CENTRAL ---
     'hub_main': '/maps/island_hub.json',
@@ -45,8 +44,6 @@ const ZONE_TINTS: Record<string, number> = {
 };
 
 // Interfaces de Datos
-interface PortalDefinition { x: number; y: number; targetZone: string; spawnX: number; spawnY: number; }
-
 interface MapData {
     id: string;
     width: number;
@@ -56,13 +53,11 @@ interface MapData {
         npcs: NpcDefinition[];
         props: InteractiveProp[];
         events: { type: string; x: number; y: number }[];
-        portals?: PortalDefinition[];
     }
 }
 
 interface NpcDefinition { id: string; name: string; x: number; y: number; sprite: string; dialogueId: string; }
 interface InteractiveProp { id: string; toolId: string; name: string; x: number; y: number; sprite: string; }
-interface Collectible { id: string; x: number; y: number; sprite: string; }
 interface PlayerData { id: string; x: number; y: number; name?: string; bodyColor: number; faceColor: number; hairColor: number; }
 interface ChatData { type: 'chat'; message: string; id: string; }
 interface OtherPlayer { body: Phaser.GameObjects.Sprite; face: Phaser.GameObjects.Sprite; hair: Phaser.GameObjects.Sprite; nameTag: Phaser.GameObjects.Text; gridX: number; gridY: number; bodyColor: number; faceColor: number; hairColor: number; }
@@ -90,7 +85,6 @@ class MainScene extends Phaser.Scene {
     private obstacles: Set<string> = new Set(); 
     private terrainGroup!: Phaser.GameObjects.Group;
     private npcGroup!: Phaser.GameObjects.Group;
-    private itemsGroup!: Phaser.GameObjects.Group; 
     private propsGroup!: Phaser.GameObjects.Group;
     private gridGraphics!: Phaser.GameObjects.Graphics; 
     private highlightGraphics!: Phaser.GameObjects.Graphics;
@@ -102,10 +96,6 @@ class MainScene extends Phaser.Scene {
     private channel!: RealtimeChannel;
     private chatBubbles: Map<string, Phaser.GameObjects.Container> = new Map();
     private chatListener: ((e: any) => void) | null = null;
-    
-    // --- Misiones ---
-    private collectedItems: Set<string> = new Set();
-    private activeQuestItems: Collectible[] = [];
 
     // Offsets calculados dinámicamente
     private offsetRow: number = 0;
@@ -114,7 +104,7 @@ class MainScene extends Phaser.Scene {
     constructor(config?: Phaser.Types.Scenes.SettingsConfig & {
         supabaseClient?: SupabaseClient; playerId?: string; playerName?: string; 
         bodyColor?: number; faceColor?: number; hairColor?: number; 
-        initialX?: number; initialY?: number; initialCollectedItems?: string[];
+        initialX?: number; initialY?: number;
         currentZone?: string;
     }) {
         super({ key: 'MainScene', ...config });
@@ -128,7 +118,6 @@ class MainScene extends Phaser.Scene {
         if (config?.hairColor !== undefined) this.hairColor = config.hairColor;
         if (config?.initialX !== undefined) this.playerGridX = config.initialX;
         if (config?.initialY !== undefined) this.playerGridY = config.initialY;
-        if (config?.initialCollectedItems) { this.collectedItems = new Set(config.initialCollectedItems); }
     }
 
     init(data: any): void {
@@ -144,9 +133,6 @@ class MainScene extends Phaser.Scene {
         
         this.obstacles = new Set();
         this.otherPlayers = new Map(); 
-        if (data.initialCollectedItems) { 
-            this.collectedItems = new Set(data.initialCollectedItems); 
-        }
     }
 
     preload(): void {
@@ -160,7 +146,6 @@ class MainScene extends Phaser.Scene {
         this.load.image('rock', '/rock.png'); 
         this.load.image('sky', '/sky.png'); 
         this.load.image('cloud_cliff', '/cloud_cliff.png'); 
-        this.load.image('fruit', '/fruit.png'); 
         this.load.image('sheet', '/sheet.png');
 
         this.load.image('block_grass', '/block_grass.png'); 
@@ -197,8 +182,6 @@ class MainScene extends Phaser.Scene {
         this.createTerrain();
         this.createNPCs(); 
         this.createProps(); 
-        this.createCollectibles(); 
-        this.createPortals(); 
 
         this.gridGraphics = this.add.graphics().setDepth(-50); 
         this.highlightGraphics = this.add.graphics().setDepth(99999); 
@@ -435,90 +418,9 @@ class MainScene extends Phaser.Scene {
         });
     }
 
-    private createPortals(): void {
-        const portalData = this.mapData.objects.portals || [];
-        portalData.forEach(portal => {
-            const { x, y } = this.gridToIso(portal.x, portal.y);
-            let targetZ = 0;
-            const hLayer = this.mapData.layers.find(l => l.name === 'height');
-            if (hLayer) {
-                const r = portal.y + this.offsetRow;
-                const c = portal.x + this.offsetCol;
-                if (hLayer.data[r] && hLayer.data[r][c]) targetZ = hLayer.data[r][c];
-            }
-            const drawY = y - BLOCK_OFFSET - (targetZ * 16);
-            const graphics = this.add.graphics();
-            graphics.fillStyle(0x00ffff, 0.3); 
-            graphics.fillCircle(x, drawY, 20);
-            graphics.setDepth(drawY - 1); 
-            
-            this.add.text(x, drawY - 40, `IR A: ${portal.targetZone}`, { 
-                fontSize: '10px', color: '#00ffff', fontFamily: 'Arial', stroke: '#000000', strokeThickness: 2 
-            }).setOrigin(0.5).setDepth(drawY + 2000);
-        });
-    }
-
-    private createCollectibles(): void {
-        this.itemsGroup = this.add.group();
-        const eventData = this.mapData.objects.events || [];
-
-        for (let i = 0; i < 3; i++) {
-            const id = `fruit_${i}`;
-            if (this.collectedItems.has(id)) continue;
-            let placed = false; let attempts = 0;
-            while (!placed && attempts < 50) {
-                attempts++;
-                const gridX = Phaser.Math.Between(-this.offsetCol, this.mapData.width - this.offsetCol);
-                const gridY = Phaser.Math.Between(-this.offsetRow, this.mapData.height - this.offsetRow);
-                
-                if (!this.isValidTile(gridX, gridY)) continue;
-                const key = `${gridX},${gridY}`;
-                if (this.obstacles.has(key)) continue;
-                if (gridX === this.playerGridX && gridY === this.playerGridY) continue;
-                
-                const isEvent = eventData.some(e => e.x === gridX && e.y === gridY);
-                if (isEvent) continue;
-
-                if (this.activeQuestItems.some(item => item.x === gridX && item.y === gridY)) continue;
-                
-                const { x, y } = this.gridToIso(gridX, gridY);
-                let targetZ = 0;
-                const hLayer = this.mapData.layers.find(l => l.name === 'height');
-                if (hLayer) {
-                    const r = gridY + this.offsetRow;
-                    const c = gridX + this.offsetCol;
-                    if (hLayer.data[r] && hLayer.data[r][c]) targetZ = hLayer.data[r][c];
-                }
-                const drawY = y - BLOCK_OFFSET - (targetZ * 16);
-
-                const sprite = this.add.sprite(x, drawY - 10, 'fruit');
-                sprite.setOrigin(0.5, 0.8).setDepth(drawY + 1).setName(id);
-                this.tweens.add({ targets: sprite, y: drawY - 20, duration: 1500, yoyo: true, repeat: -1, ease: 'Sine.easeInOut' });
-                this.itemsGroup.add(sprite);
-                this.activeQuestItems.push({ id, x: gridX, y: gridY, sprite: 'fruit' });
-                placed = true;
-            }
-        }
-    }
-
     private handlePlayerInput(gridX: number, gridY: number): void {
         if (!this.isValidTile(gridX, gridY)) return;
         const onInteract = this.registry.get('onInteract');
-
-        const targetPortal = (this.mapData.objects.portals || []).find(p => p.x === gridX && p.y === gridY);
-        if (targetPortal) {
-            this.movePlayerToGrid(gridX, gridY, () => {
-                if (onInteract) {
-                    onInteract({ 
-                        type: 'change-zone', 
-                        zone: targetPortal.targetZone,
-                        spawnX: targetPortal.spawnX,
-                        spawnY: targetPortal.spawnY
-                    });
-                }
-            });
-            return;
-        }
 
         const targetNPC = this.mapData.objects.npcs.find(n => n.x === gridX && n.y === gridY);
         if (targetNPC) {
@@ -532,11 +434,6 @@ class MainScene extends Phaser.Scene {
             const bestTile = this.getNearestValidNeighbor(gridX, gridY);
             if (bestTile) { this.movePlayerToGrid(bestTile.x, bestTile.y, () => { if (onInteract) onInteract({ type: 'open-tool', id: targetProp.toolId }); }); }
             return;
-        }
-
-        const targetItem = this.activeQuestItems.find(i => i.x === gridX && i.y === gridY);
-        if (targetItem && !this.collectedItems.has(targetItem.id)) {
-            this.movePlayerToGrid(gridX, gridY, () => { if (onInteract) onInteract({ type: 'collect-item', id: targetItem.id }); }); return;
         }
 
         const targetEvent = (this.mapData.objects.events || []).find(e => e.x === gridX && e.y === gridY);
@@ -593,14 +490,6 @@ class MainScene extends Phaser.Scene {
     
     private setupRealtime(): void { this.channel = this.supabaseClient.channel('the-grove-global', { config: { presence: { key: this.myPlayerId } } }); this.channel.on('broadcast', { event: 'player-move' }, (payload) => this.handleOtherPlayerMove(payload.payload)).on('broadcast', { event: 'chat' }, (payload) => this.handleChatMessage(payload.payload)).on('presence', { event: 'sync' }, () => { const state = this.channel.presenceState(); const presentIds = new Set(Object.keys(state)); this.otherPlayers.forEach((playerData, id) => { if (!presentIds.has(id) && id !== this.myPlayerId) { playerData.body.destroy(); playerData.face.destroy(); playerData.hair.destroy(); playerData.nameTag.destroy(); this.otherPlayers.delete(id); } }); }).subscribe(async (status) => { if (status === 'SUBSCRIBED') { await this.channel.track({ id: this.myPlayerId, x: 0, y: 0, name: this.playerName }); this.channel.send({ type: 'broadcast', event: 'player-move', payload: { id: this.myPlayerId, x: 0, y: 0, name: this.playerName, bodyColor: this.bodyColor, faceColor: this.faceColor, hairColor: this.hairColor } as PlayerData }); } }); }
     
-    public syncCollectedItems(newCollectedList: string[]) {
-        newCollectedList.forEach(id => {
-            this.collectedItems.add(id);
-            const sprite = this.itemsGroup?.getChildren().find((s: any) => s.name === id) as Phaser.GameObjects.Sprite;
-            if (sprite) { this.tweens.add({ targets: sprite, scaleX: 0, scaleY: 0, duration: 300, onComplete: () => sprite.destroy() }); }
-        });
-    }
-
     resize(gameSize: Phaser.Structs.Size): void { if (this.playerBody) { this.cameras.main.centerOn(this.playerBody.x, this.playerBody.y); } }
     
     public changeEnvironment(zoneName: string) { 
@@ -639,14 +528,12 @@ class MainScene extends Phaser.Scene {
             const isNpc = this.mapData.objects.npcs.some(n => n.x === hit!.x && n.y === hit!.y);
             const isProp = this.mapData.objects.props.some(p => p.x === hit!.x && p.y === hit!.y);
             const isEvent = (this.mapData.objects.events || []).some(e => e.x === hit!.x && e.y === hit!.y);
-            const isItem = this.activeQuestItems.some(i => i.x === hit!.x && i.y === hit!.y && !this.collectedItems.has(i.id));
             const isObstacle = this.obstacles.has(`${hit.x},${hit.y}`);
             
             let cursorColor = 0xffff00; 
             if (isNpc) cursorColor = 0x0000ff; 
             else if (isEvent) cursorColor = 0x00ffff;
             else if (isProp) cursorColor = 0xff00ff; 
-            else if (isItem) cursorColor = 0x00ff00; 
             else if (isObstacle) cursorColor = 0xff0000; 
             
             // Calculamos altura para dibujar el rombo en el lugar correcto
@@ -669,7 +556,7 @@ class MainScene extends Phaser.Scene {
     shutdown(): void { if (this.channel) this.channel.unsubscribe(); if (this.chatListener) window.removeEventListener('PHASER_CHAT_EVENT', this.chatListener); this.otherPlayers.clear(); this.chatBubbles.clear(); }
 }
 
-export default function GameCanvas({ onInteract, currentZone, playerName = "Player", bodyColor = 0xffffff, faceColor = 0xffffff, hairColor = 0xffffff, initialX = 0, initialY = 0, onMove, initialCollectedItems }: any) {
+export default function GameCanvas({ onInteract, currentZone, playerName = "Player", bodyColor = 0xffffff, faceColor = 0xffffff, hairColor = 0xffffff, initialX = 0, initialY = 0, onMove }: any) {
     const gameRef = useRef<Phaser.Game | null>(null); const containerRef = useRef<HTMLDivElement>(null);
     useEffect(() => { 
         if (typeof window === 'undefined') return; 
@@ -681,7 +568,7 @@ export default function GameCanvas({ onInteract, currentZone, playerName = "Play
         const config: Phaser.Types.Core.GameConfig = { 
             type: Phaser.AUTO, width: window.innerWidth, height: window.innerHeight, parent: containerRef.current || undefined, 
             scene: new MainScene({ 
-                key: 'MainScene', supabaseClient: client, playerId, playerName, bodyColor, faceColor, hairColor, initialX, initialY, initialCollectedItems,
+                key: 'MainScene', supabaseClient: client, playerId, playerName, bodyColor, faceColor, hairColor, initialX, initialY,
                 currentZone 
             }), 
             physics: { default: 'arcade', arcade: { debug: false } }, backgroundColor: '#62a6d4', scale: { mode: Phaser.Scale.RESIZE, autoCenter: Phaser.Scale.CENTER_BOTH } 
@@ -703,13 +590,6 @@ export default function GameCanvas({ onInteract, currentZone, playerName = "Play
     } }, [bodyColor, faceColor, hairColor, playerName]);
     
     useEffect(() => { 
-        if (gameRef.current && gameRef.current.scene.isActive('MainScene') && initialCollectedItems) { 
-            const scene = gameRef.current.scene.getScene('MainScene') as MainScene; 
-            if (scene && typeof scene.syncCollectedItems === 'function') { scene.syncCollectedItems(initialCollectedItems); } 
-        } 
-    }, [initialCollectedItems]);
-
-    useEffect(() => { 
         if (gameRef.current && currentZone) { 
             const scene = gameRef.current.scene.getScene('MainScene') as MainScene; 
             if (scene) { 
@@ -721,8 +601,7 @@ export default function GameCanvas({ onInteract, currentZone, playerName = "Play
                     faceColor: faceColor,
                     hairColor: hairColor,
                     initialX: initialX, 
-                    initialY: initialY,
-                    initialCollectedItems: Array.from(scene['collectedItems'] || [])
+                    initialY: initialY
                 });
             } 
         } 

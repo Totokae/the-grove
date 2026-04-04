@@ -9,7 +9,8 @@ import StoreModal, { StoreItem } from '@/components/StoreModal'; // Importamos l
 import ChatInput from '@/components/ChatInput'; 
 import CharacterCreator from '@/components/CharacterCreator'; 
 import DialogModal from '@/components/DialogModal';
-import ToolModal from '@/components/ToolModal'; 
+import ToolModal from '@/components/ToolModal';
+import GamesModal from '@/components/GamesModal';
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -22,8 +23,7 @@ const GameCanvas = dynamic(() => import('@/components/GameCanvas'), {
 });
 
 const DIALOGS: Record<string, string> = {
-  'welcome-math': "¡Hola! Soy el Profesor Ray Z. He perdido mis 3 Frutas Binomiales...",
-  'mission-complete': "¡Increíble! Has recuperado todas las frutas...",
+  'welcome-math': "¡Hola! Soy el Profesor Ray Z. Bienvenido al Grove: explora islas, practica matemáticas y diviértete.",
   'welcome-grade1': "[DIALOGO_BIENVENIDA_ISLA_1: Aquí irá el texto de 1º Básico]",
   'welcome-hub': "[DIALOGO_BIENVENIDA_HUB: Aquí irá el texto del Hub]",
   'default': "[DIALOGO_POR_DEFECTO: Falta configurar este ID]",
@@ -44,6 +44,7 @@ export default function Home() {
   const [seeds, setSeeds] = useState(0); 
   const [isMathOpen, setIsMathOpen] = useState(false);
   const [isMapOpen, setIsMapOpen] = useState(false);
+  const [isGamesOpen, setIsGamesOpen] = useState(false);
   const [isStoreOpen, setIsStoreOpen] = useState(false);
   const [isDialogOpen, setIsDialogOpen] = useState(false);
   const [dialogContent, setDialogContent] = useState({ name: '', text: '' });
@@ -51,19 +52,17 @@ export default function Home() {
   const [isToolOpen, setIsToolOpen] = useState(false);
   const [currentToolId, setCurrentToolId] = useState<string>('');
 
-  const [questProgress, setQuestProgress] = useState(0); 
-  const [collectedItemsList, setCollectedItemsList] = useState<string[]>([]);
-  const [currentChallengeSource, setCurrentChallengeSource] = useState<'tree' | 'fruit' | null>(null); 
-  const [currentFruitId, setCurrentFruitId] = useState<string | null>(null); 
-  const [isQuestMinimized, setIsQuestMinimized] = useState(false);
-  const [currentLocation, setCurrentLocation] = useState({ island: '5° Básico', zone: 'Números' });
+  /** Clave del mapa en Phaser (`ZONE_MAPS` en GameCanvas) */
+  const [currentMapZone, setCurrentMapZone] = useState('hub_main');
+  /** Isla / materia para preguntas (QUESTION_BANK) y textos */
+  const [currentLocation, setCurrentLocation] = useState({ island: '5° Básico', subject: 'Números' });
 
   // CARGA INICIAL
   const handleLoginComplete = async (data: any) => {
       // Intentamos cargar inventario desde Supabase (si existe columna, sino usamos defaults)
       const { data: dbData } = await supabase
         .from('players')
-        .select('quest_progress, collected_items, inventory, equipped_items')
+        .select('inventory, equipped_items')
         .eq('username', data.name)
         .single();
 
@@ -82,11 +81,6 @@ export default function Home() {
           equippedItems: equippedItems
       });
       setSeeds(data.seeds); 
-
-      if (dbData) {
-          setQuestProgress(dbData.quest_progress || 0);
-          setCollectedItemsList(dbData.collected_items || []);
-      }
   };
 
   const handlePlayerMove = async (x: number, y: number) => {
@@ -99,6 +93,18 @@ export default function Home() {
       if (playerData) {
           await supabase.from('players').update({ seeds: newAmount }).eq('username', playerData.name);
       }
+  };
+
+  const awardSeedsDelta = async (delta: number) => {
+    if (!playerData || delta <= 0) return;
+    setSeeds((s) => s + delta);
+    const { data } = await supabase
+      .from('players')
+      .select('seeds')
+      .eq('username', playerData.name)
+      .single();
+    const next = (data?.seeds ?? 0) + delta;
+    await supabase.from('players').update({ seeds: next }).eq('username', playerData.name);
   };
 
   // 👇 LÓGICA DE COMPRA (NUEVA)
@@ -144,56 +150,37 @@ export default function Home() {
     await supabase.from('players').update(dbUpdates).eq('username', playerData.name);
   };
 
-  const handleInteraction = (event: { type: string; id?: string; zone?: string; spawnX?: number; spawnY?: number }) => {
-    if (event.type === 'change-zone' && event.zone) {
-        setPlayerData(prev => prev ? ({ ...prev, gridX: event.spawnX || 0, gridY: event.spawnY || 0 }) : null);
-        setCurrentLocation(prev => ({ ...prev, zone: event.zone! }));
+  const handleMapTravel = async (mapZoneKey: string, islandLabel: string, subjectName: string) => {
+    setCurrentMapZone(mapZoneKey);
+    setCurrentLocation({ island: islandLabel, subject: subjectName });
+    setPlayerData(prev => (prev ? { ...prev, gridX: 0, gridY: 0 } : null));
+    if (playerData) {
+      await supabase.from('players').update({ grid_x: 0, grid_y: 0 }).eq('username', playerData.name);
     }
-    else if (event.type === 'open-tool' && event.id) {
+  };
+
+  const handleInteraction = (event: { type: string; id?: string }) => {
+    if (event.type === 'open-tool' && event.id) {
       setCurrentToolId(event.id);
       setIsToolOpen(true);
     }
     else if (event.type === 'npc-dialog' && event.id) {
-      if (questProgress >= 3 && event.id === 'welcome-math') {
-          setDialogContent({ name: "Prof. Ray Z.", text: DIALOGS['mission-complete'] });
-      } else {
-          const text = DIALOGS[event.id] || DIALOGS['default'];
-          let npcName = "NPC Desconocido";
-          if (event.id === 'welcome-math') npcName = "Prof. Ray Z.";
-          else if (event.id === 'welcome-grade1') npcName = "Tutor Isla 1";
-          else npcName = `NPC (${event.id})`;
-          setDialogContent({ name: npcName, text: text });
-      }
+      const text = DIALOGS[event.id] || DIALOGS['default'];
+      let npcName = "NPC Desconocido";
+      if (event.id === 'welcome-math') npcName = "Prof. Ray Z.";
+      else if (event.id === 'welcome-grade1') npcName = "Tutor Isla 1";
+      else npcName = `NPC (${event.id})`;
+      setDialogContent({ name: npcName, text });
       setIsDialogOpen(true);
     }
     else if (event.type === 'math-challenge') {
-      setCurrentChallengeSource('tree');
       setIsMathOpen(true);
-    } 
-    else if (event.type === 'collect-item' && event.id) {
-      setCurrentChallengeSource('fruit');
-      setCurrentFruitId(event.id);
-      setIsMathOpen(true); 
     }
   };
 
   const handleMathSuccess = async () => {
-      handleUpdateSeeds(seeds + 10); 
-      if (currentChallengeSource === 'fruit' && currentFruitId) {
-          const newProgress = questProgress + 1;
-          const newList = [...collectedItemsList, currentFruitId];
-          setQuestProgress(newProgress);
-          setCollectedItemsList(newList);
-          if (playerData) {
-              await supabase.from('players').update({ 
-                  quest_progress: newProgress,
-                  collected_items: newList 
-              }).eq('username', playerData.name);
-          }
-      }
+      handleUpdateSeeds(seeds + 10);
       setIsMathOpen(false);
-      setCurrentChallengeSource(null);
-      setCurrentFruitId(null);
   };
 
   if (!playerData) {
@@ -205,45 +192,25 @@ export default function Home() {
       
       {/* HUD */}
       <div className="absolute top-4 left-4 right-4 z-10 flex justify-between items-start pointer-events-none">
-        <div className="pointer-events-auto flex items-center gap-2">
-            <div className="px-6 py-2 bg-black/60 backdrop-blur-md rounded-full border border-white/20 text-white font-bold shadow-lg flex items-center gap-3">
-              <span>🌱 {seeds}</span>
+        <div className="pointer-events-auto flex flex-col items-start gap-2">
+            <div className="flex items-center gap-2">
+              <div className="px-6 py-2 bg-black/60 backdrop-blur-md rounded-full border border-white/20 text-white font-bold shadow-lg flex items-center gap-3">
+                <span>🌱 {seeds}</span>
+              </div>
+              <button type="button" onClick={() => setIsStoreOpen(true)} className="w-12 h-12 bg-[#ff8f00] rounded-full border-2 text-2xl hover:scale-105 transition-transform">🛍️</button>
             </div>
-            <button onClick={() => setIsStoreOpen(true)} className="w-12 h-12 bg-[#ff8f00] rounded-full border-2 text-2xl hover:scale-105 transition-transform">🛍️</button>
+            <button type="button" onClick={() => setIsGamesOpen(true)} className="px-6 py-3 bg-[#5d4037] text-[#efebe9] font-bold rounded-xl border-b-4 border-[#3e2723] hover:translate-y-1 hover:border-b-0 transition-all">
+              🎮 JUEGOS
+            </button>
         </div>
 
         <div className="flex flex-col items-end gap-2 pointer-events-auto">
             <div className="px-3 py-1 bg-white/90 text-[#2e7d32] text-xs font-black rounded-full uppercase shadow-sm">
                👤 {playerData.name}
             </div>
-            <button onClick={() => setIsMapOpen(true)} className="px-6 py-3 bg-[#5d4037] text-[#efebe9] font-bold rounded-xl border-b-4 border-[#3e2723] hover:translate-y-1 hover:border-b-0 transition-all">
+            <button type="button" onClick={() => setIsMapOpen(true)} className="px-6 py-3 bg-[#5d4037] text-[#efebe9] font-bold rounded-xl border-b-4 border-[#3e2723] hover:translate-y-1 hover:border-b-0 transition-all">
                 🗺️ MAPA
             </button>
-            <div className={`mt-4 p-3 rounded-xl border-4 shadow-xl transition-all duration-300 ease-in-out relative ${isQuestMinimized ? 'w-40 bg-[#fff8e1]/80' : 'w-64 bg-[#fff8e1]'} ${questProgress >= 3 ? 'bg-[#c8e6c9] border-[#2e7d32]' : 'border-[#ffa000]'}`}>
-                <div className="flex justify-between items-center mb-1">
-                    <h3 className={`font-black text-xs uppercase ${questProgress >= 3 ? 'text-[#1b5e20]' : 'text-[#ff6f00]'}`}>
-                        {questProgress >= 3 ? '🌟 COMPLETADA' : '📜 MISIÓN'}
-                    </h3>
-                    <button onClick={() => setIsQuestMinimized(!isQuestMinimized)} className="w-6 h-6 flex items-center justify-center bg-black/10 hover:bg-black/20 rounded text-[#3e2723] font-bold text-xs transition-colors">
-                        {isQuestMinimized ? '▼' : '▬'}
-                    </button>
-                </div>
-                {!isQuestMinimized && (
-                    <div className="animate-fade-in">
-                        <div className="flex justify-between items-center">
-                            <span className="text-[#3e2723] font-bold text-sm">
-                                {questProgress >= 3 ? 'Habla con Ray Z.' : 'Recuperar Frutas'}
-                            </span>
-                            <span className="text-xl font-black text-[#3e2723]">
-                                {questProgress}/3
-                            </span>
-                        </div>
-                        <div className="w-full h-2 bg-black/10 rounded-full mt-2 overflow-hidden">
-                            <div className="h-full bg-[#ffb74d] transition-all duration-500" style={{ width: `${(questProgress / 3) * 100}%` }} />
-                        </div>
-                    </div>
-                )}
-            </div>
         </div>
       </div>
 
@@ -252,7 +219,7 @@ export default function Home() {
       </div>
 
       <GameCanvas 
-          currentZone={currentLocation.zone}
+          currentZone={currentMapZone}
           playerName={playerData.name}
           bodyColor={playerData.bodyColor}
           faceColor={playerData.faceColor}
@@ -261,12 +228,16 @@ export default function Home() {
           initialY={playerData.gridY}
           onMove={handlePlayerMove}
           onInteract={handleInteraction}
-          initialCollectedItems={collectedItemsList}
       />
 
       <DialogModal isOpen={isDialogOpen} onClose={() => setIsDialogOpen(false)} npcName={dialogContent.name} text={dialogContent.text} />
-      <MathModal isOpen={isMathOpen} onClose={() => setIsMathOpen(false)} onSuccess={handleMathSuccess} currentZone={currentLocation.zone} currentIsland={currentLocation.island} />
-      <WorldMap isOpen={isMapOpen} onClose={() => setIsMapOpen(false)} onTravel={(i, z) => setCurrentLocation({ island: i, zone: z })} />
+      <MathModal isOpen={isMathOpen} onClose={() => setIsMathOpen(false)} onSuccess={handleMathSuccess} currentZone={currentLocation.subject} currentIsland={currentLocation.island} />
+      <WorldMap isOpen={isMapOpen} onClose={() => setIsMapOpen(false)} onTravel={handleMapTravel} />
+      <GamesModal
+        isOpen={isGamesOpen}
+        onClose={() => setIsGamesOpen(false)}
+        onAwardSeeds={awardSeedsDelta}
+      />
       <ToolModal isOpen={isToolOpen} onClose={() => setIsToolOpen(false)} toolId={currentToolId} />
       
       {/* TIENDA CONECTADA */}
