@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import MercadoMatematico from '@/components/MercadoMatematico';
+import SeedDrop from '@/components/SeedDrop';
 
 interface GamesModalProps {
   isOpen: boolean;
@@ -9,11 +10,25 @@ interface GamesModalProps {
   onAwardSeeds: (delta: number) => Promise<void>;
 }
 
-const MINIGAMES = [{ id: 'mercado-matematico', title: 'Mercado Matemático' }] as const;
+const MINIGAMES = [
+  {
+    id: 'mercado-matematico',
+    title: 'Mercado Matemático',
+    description: 'Resuelve problemas para atender clientes',
+  },
+  {
+    id: 'seed-drop',
+    title: 'Camino de Funciones',
+    description: 'Dibuja la función que guía la semilla a las estrellas',
+  },
+] as const;
+
+type GameId = (typeof MINIGAMES)[number]['id'];
 
 export default function GamesModal({ isOpen, onClose, onAwardSeeds }: GamesModalProps) {
-  const [view, setView] = useState<'menu' | 'mercado'>('menu');
+  const [view, setView] = useState<'menu' | GameId>('menu');
   const [mercadoKey, setMercadoKey] = useState(0);
+  const [seedDropKey, setSeedDropKey] = useState(0);
 
   useEffect(() => {
     if (isOpen) setView('menu');
@@ -23,7 +38,7 @@ export default function GamesModal({ isOpen, onClose, onAwardSeeds }: GamesModal
     if (!isOpen) return;
     const onKey = (e: KeyboardEvent) => {
       if (e.key !== 'Escape') return;
-      if (view === 'mercado') setView('menu');
+      if (view !== 'menu') setView('menu');
       else onClose();
     };
     window.addEventListener('keydown', onKey);
@@ -33,7 +48,7 @@ export default function GamesModal({ isOpen, onClose, onAwardSeeds }: GamesModal
   if (!isOpen) return null;
 
   const backdropClick = () => {
-    if (view === 'mercado') setView('menu');
+    if (view !== 'menu') setView('menu');
     else onClose();
   };
 
@@ -47,14 +62,19 @@ export default function GamesModal({ isOpen, onClose, onAwardSeeds }: GamesModal
         role="dialog"
         aria-modal="true"
         aria-labelledby={view === 'menu' ? 'games-modal-title' : undefined}
-        aria-label={view === 'mercado' ? 'Mercado Matemático' : undefined}
-        className="relative w-full max-w-lg rounded-xl border-4 border-[#3e2723] bg-[#5d4037] shadow-2xl overflow-hidden"
+        className={`relative w-full rounded-xl border-4 border-[#3e2723] bg-[#5d4037] shadow-2xl overflow-hidden ${
+          view === 'seed-drop' ? 'max-w-xl' : 'max-w-lg'
+        }`}
         onClick={(e) => e.stopPropagation()}
       >
-        {view === 'menu' ? (
+        {/* ── Menu ── */}
+        {view === 'menu' && (
           <>
             <div className="flex items-center justify-between border-b-4 border-[#3e2723] bg-[#3e2723] px-4 py-3">
-              <h2 id="games-modal-title" className="text-lg font-bold text-[#efebe9] tracking-wide">
+              <h2
+                id="games-modal-title"
+                className="text-lg font-bold text-[#efebe9] tracking-wide"
+              >
                 🎮 Minijuegos
               </h2>
               <button
@@ -67,18 +87,22 @@ export default function GamesModal({ isOpen, onClose, onAwardSeeds }: GamesModal
               </button>
             </div>
 
-            <ul className="divide-y divide-[#3e2723]/80 p-4 space-y-0">
+            <ul className="divide-y divide-[#3e2723]/60 p-4">
               {MINIGAMES.map((game) => (
                 <li
                   key={game.id}
-                  className="flex flex-col gap-3 py-4 first:pt-0 last:pb-0 sm:flex-row sm:items-center sm:justify-between"
+                  className="flex flex-col gap-1 py-4 first:pt-0 last:pb-0 sm:flex-row sm:items-center sm:justify-between sm:gap-4"
                 >
-                  <span className="font-bold text-[#efebe9] text-base">{game.title}</span>
+                  <div className="min-w-0">
+                    <p className="font-bold text-[#efebe9] text-base">{game.title}</p>
+                    <p className="text-xs text-[#efebe9]/55 mt-0.5">{game.description}</p>
+                  </div>
                   <button
                     type="button"
                     onClick={() => {
-                      setMercadoKey((k) => k + 1);
-                      setView('mercado');
+                      if (game.id === 'mercado-matematico') setMercadoKey((k) => k + 1);
+                      if (game.id === 'seed-drop') setSeedDropKey((k) => k + 1);
+                      setView(game.id);
                     }}
                     className="shrink-0 px-5 py-2 rounded-lg bg-[#efebe9] text-[#3e2723] font-bold border-b-4 border-[#bcaaa4] hover:translate-y-0.5 hover:border-b-2 active:border-b-0 transition-all"
                   >
@@ -88,9 +112,22 @@ export default function GamesModal({ isOpen, onClose, onAwardSeeds }: GamesModal
               ))}
             </ul>
           </>
-        ) : (
+        )}
+
+        {/* ── Mercado Matemático ── */}
+        {view === 'mercado-matematico' && (
           <MercadoMatematico
             key={mercadoKey}
+            onBackToMenu={() => setView('menu')}
+            onExitToGame={onClose}
+            onAwardSeeds={onAwardSeeds}
+          />
+        )}
+
+        {/* ── Camino de Funciones ── */}
+        {view === 'seed-drop' && (
+          <SeedDrop
+            key={seedDropKey}
             onBackToMenu={() => setView('menu')}
             onExitToGame={onClose}
             onAwardSeeds={onAwardSeeds}
