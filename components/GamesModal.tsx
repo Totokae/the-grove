@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import MercadoMatematico from '@/components/MercadoMatematico';
+import GolfLineal from '@/components/GolfLineal';
 import SaltoDelRio from '@/components/SaltoDelRio';
 import SeedDrop from '@/components/SeedDrop';
 import TiroLibre from '@/components/TiroLibre';
@@ -41,6 +42,7 @@ export default function GamesModal({ isOpen, onClose, onAwardSeeds }: GamesModal
   const [view, setView] = useState<'menu' | GameId>('menu');
   const [mercadoKey, setMercadoKey] = useState(0);
   const [seedDropKey, setSeedDropKey] = useState(0);
+  const [golfLinealKey, setGolfLinealKey] = useState(0);
   const [saltoDelRioKey, setSaltoDelRioKey] = useState(0);
   const [tiroLibreKey, setTiroLibreKey] = useState(0);
 
@@ -81,9 +83,11 @@ export default function GamesModal({ isOpen, onClose, onAwardSeeds }: GamesModal
             ? 'max-w-[860px]'
             : view === 'tiro-libre'
               ? 'max-w-[820px]'
-              : view === 'seed-drop'
-                ? 'max-w-xl'
-                : 'max-w-lg'
+              : view === 'golf-lineal'
+                ? 'max-w-[800px]'
+                : view === 'seed-drop'
+                  ? 'max-w-xl'
+                  : 'max-w-lg'
         }`}
         onClick={(e) => e.stopPropagation()}
       >
@@ -122,6 +126,7 @@ export default function GamesModal({ isOpen, onClose, onAwardSeeds }: GamesModal
                     onClick={() => {
                       if (game.id === 'mercado-matematico') setMercadoKey((k) => k + 1);
                       if (game.id === 'seed-drop') setSeedDropKey((k) => k + 1);
+                      if (game.id === 'golf-lineal') setGolfLinealKey((k) => k + 1);
                       if (game.id === 'salto-del-rio') setSaltoDelRioKey((k) => k + 1);
                       if (game.id === 'tiro-libre') setTiroLibreKey((k) => k + 1);
                       setView(game.id);
@@ -153,6 +158,15 @@ export default function GamesModal({ isOpen, onClose, onAwardSeeds }: GamesModal
             onBackToMenu={() => setView('menu')}
             onExitToGame={onClose}
             onAwardSeeds={onAwardSeeds}
+          />
+        )}
+
+        {/* ── Golf Lineal ── */}
+        {view === 'golf-lineal' && (
+          <GolfLineal
+            key={golfLinealKey}
+            onBackToMenu={() => setView('menu')}
+            onExitToGame={onClose}
           />
         )}
 

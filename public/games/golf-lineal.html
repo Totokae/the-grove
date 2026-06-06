@@ -1,0 +1,741 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Golf Lineal</title>
+<link href="https://fonts.googleapis.com/css2?family=Lora:ital,wght@0,400;0,600;1,400&family=Space+Mono:wght@400;700&display=swap" rel="stylesheet">
+<style>
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0;}
+:root{
+  --leaf:#6db86d;--sun:#f0c060;--cream:#f5f0e8;
+  --ui-bg:rgba(8,18,8,0.95);--ui-border:rgba(109,184,109,0.24);
+}
+html,body{height:100%;margin:0;}
+body{
+  background:#0c160c;display:flex;flex-direction:column;
+  align-items:center;justify-content:center;
+  min-height:100%;font-family:'Space Mono',monospace;
+  overflow:hidden;user-select:none;padding:8px;
+}
+#wrap{width:100%;max-width:760px;}
+
+#hud{display:flex;justify-content:space-between;align-items:center;
+  padding:6px 0;flex-wrap:wrap;gap:8px;}
+.hg{display:flex;gap:18px;}
+.hi{font-size:9px;color:rgba(245,240,232,.38);text-transform:uppercase;letter-spacing:.1em;}
+.hv{font-size:15px;font-weight:700;color:var(--leaf);}
+
+#c{display:block;width:100%;border-radius:8px;border:1px solid var(--ui-border);}
+
+#ctrl{
+  background:var(--ui-bg);border:1px solid var(--ui-border);border-radius:8px;
+  padding:10px 16px;margin-top:6px;
+  display:flex;align-items:center;gap:16px;flex-wrap:wrap;
+}
+.cfn{font-family:'Lora',serif;font-size:20px;color:var(--sun);
+  display:flex;align-items:center;gap:6px;}
+.cfn em{color:rgba(245,240,232,.4);font-style:normal;font-size:15px;}
+#im{
+  font-family:'Space Mono',monospace;font-size:19px;font-weight:700;
+  color:var(--sun);background:rgba(240,192,96,.1);
+  border:1px solid rgba(240,192,96,.35);border-radius:5px;
+  padding:3px 8px;width:80px;outline:none;text-align:center;
+}
+#im:focus{border-color:rgba(240,192,96,.8);}
+.ci{flex:1;min-width:140px;}
+#ceq{font-size:12px;color:rgba(200,235,180,.6);margin-bottom:2px;font-family:'Lora',serif;}
+#cht{font-size:10px;color:rgba(245,240,232,.28);}
+#bs{
+  font-family:'Space Mono',monospace;font-size:11px;padding:9px 20px;
+  background:var(--leaf);color:#0a160a;border:none;border-radius:5px;
+  cursor:pointer;font-weight:700;letter-spacing:.07em;white-space:nowrap;
+}
+#bs:hover{opacity:.85;}
+#bs:disabled{opacity:.3;cursor:default;}
+
+#bbar{display:flex;justify-content:space-between;align-items:center;padding:5px 0;}
+.ht{font-size:10px;color:rgba(245,240,232,.28);letter-spacing:.05em;}
+#bmn{font-family:'Space Mono',monospace;font-size:10px;padding:4px 12px;
+  background:transparent;color:var(--leaf);border:1px solid var(--ui-border);
+  border-radius:5px;cursor:pointer;}
+
+/* Overlay dibujado EN el canvas — no HTML encima */
+.cpow{display:flex;flex-direction:column;gap:3px;min-width:120px;}
+.cpow-label{font-size:9px;color:rgba(245,240,232,.4);text-transform:uppercase;letter-spacing:.1em;}
+.cpow-label span{color:var(--leaf);font-weight:700;}
+#pow{width:100%;accent-color:var(--leaf);height:4px;cursor:pointer;}
+input[type=range]{-webkit-appearance:none;height:4px;border-radius:2px;
+  background:rgba(109,184,109,.25);outline:none;}
+input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;width:14px;height:14px;
+  border-radius:50%;background:var(--leaf);cursor:pointer;}
+input[type=number]::-webkit-inner-spin-button,
+input[type=number]::-webkit-outer-spin-button{-webkit-appearance:none;}
+input[type=number]{-moz-appearance:textfield;}
+</style>
+</head>
+<body>
+<div id="wrap">
+  <div id="hud">
+    <div class="hg">
+      <div><div class="hi">Hoyo</div><div class="hv" id="hlvl">1/6</div></div>
+      <div><div class="hi">Golpes</div><div class="hv" id="hsh">0</div></div>
+      <div><div class="hi">Total</div><div class="hv" id="htot">0</div></div>
+    </div>
+    <div class="hg">
+      <div><div class="hi">Par</div><div class="hv" id="hpar">—</div></div>
+      <div><div class="hi">Resultado</div><div class="hv" id="hres">—</div></div>
+    </div>
+  </div>
+
+  <canvas id="c"></canvas>
+
+  <div id="ctrl">
+    <div class="cfn">
+      <em>f(x) =</em>
+      <input id="im" type="number" step="0.1" value="1">
+      <em>x</em>
+    </div>
+    <div class="ci">
+      <div id="ceq">Ajusta m y pulsa Lanzar</div>
+      <div id="cht">La bola sigue la línea desde su posición</div>
+    </div>
+    <div class="cpow">
+      <div class="cpow-label">Potencia <span id="pow-val">50%</span></div>
+      <input id="pow" type="range" min="10" max="100" value="50" step="5">
+    </div>
+    <button id="bs">Lanzar ▶</button>
+  </div>
+
+  <div id="bbar">
+    <div class="ht" id="hint">Encuentra la pendiente m que pasa por el hoyo</div>
+    <button id="bmn">☰ menú</button>
+  </div>
+</div>
+
+<script>
+const cv  = document.getElementById('c');
+const ctx = cv.getContext('2d');
+
+// Canvas responsivo
+function resize(){
+  const W = Math.min(760, window.innerWidth - 20);
+  const H = Math.round(W * 0.55);
+  cv.width  = W;
+  cv.height = H;
+}
+resize();
+window.addEventListener('resize', ()=>{ resize(); draw(); });
+
+function W(){ return cv.width; }
+function H(){ return cv.height; }
+
+// Escala: 1 unidad = SCALE px, origen en centro del canvas
+const SCALE = ()=> Math.round(cv.width / 14);
+const OX = ()=> cv.width  / 2;
+const OY = ()=> cv.height / 2;
+
+function tc(mx,my){ return { x: OX()+mx*SCALE(), y: OY()-my*SCALE() }; }
+
+// ── Hoyos ──────────────────────────────────────────────────────────────────
+const HOLES = [
+  { label:'Hoyo 1 — La bajada', hint:'El hoyo está a la derecha y abajo — prueba m negativo', par:2,
+    ball:{x:-4,y:2}, hole:{x:4,y:-2}, obs:[] },
+  { label:'Hoyo 2 — La subida', hint:'El hoyo está arriba a la derecha — m positivo', par:2,
+    ball:{x:-5,y:-1}, hole:{x:4,y:3}, obs:[] },
+  { label:'Hoyo 3 — La horizontal', hint:'El hoyo está al mismo nivel — piensa en m = 0', par:1,
+    ball:{x:-5,y:0}, hole:{x:5,y:0}, obs:[] },
+  { label:'Hoyo 4 — El árbol', hint:'Hay un árbol en el camino directo — rodéalo', par:3,
+    ball:{x:-5,y:2}, hole:{x:5,y:-2}, obs:[{type:'tree',x:0,y:0,r:0.9}] },
+  { label:'Hoyo 5 — El lago', hint:'Evita caer al lago', par:3,
+    ball:{x:-5,y:-1}, hole:{x:5,y:2}, obs:[{type:'pond',x:-1,y:0.5,r:1.1}] },
+  { label:'Hoyo 6 — El final', hint:'Dos obstáculos — necesitas el ángulo exacto', par:3,
+    ball:{x:-5,y:3}, hole:{x:5,y:-3}, obs:[{type:'tree',x:-1.5,y:1.2,r:0.8},{type:'pond',x:2,y:-1,r:0.9}] },
+];
+
+// ── Estado ──────────────────────────────────────────────────────────────────
+let gstate='menu', holeIdx=0, shots=0, total=0, holePar=[];
+let ball={x:0,y:0}, hole={x:0,y:0}, obs=[];
+let lines=[], anim=null, parts=[];
+const HR=0.35, BR=8;
+
+function loadHole(){
+  const c=HOLES[holeIdx];
+  ball={...c.ball}; hole={...c.hole}; obs=c.obs.map(o=>({...o}));
+  shots=0; lines=[]; anim=null;
+  document.getElementById('hlvl').textContent=`${holeIdx+1}/${HOLES.length}`;
+  document.getElementById('hpar').textContent=c.par;
+  document.getElementById('hsh').textContent=0;
+  document.getElementById('hres').textContent='—';
+  document.getElementById('cht').textContent=c.hint;
+  document.getElementById('ceq').textContent='f(x) = m·x  (origen en la bola)';
+  document.getElementById('im').value='1';
+  document.getElementById('bs').disabled=false;
+  gstate='playing';
+}
+
+// ── Disparo ─────────────────────────────────────────────────────────────────
+// La potencia (10–100%) limita cuántas unidades lógicas recorre la bola.
+// MAX_DIST = distancia máxima en unidades lógicas al 100% de potencia.
+const MAX_DIST = 12;
+
+function getPower(){
+  return parseInt(document.getElementById('pow').value) / 100;
+}
+
+function shoot(){
+  if(gstate!=='playing'||anim) return;
+  const m=parseFloat(document.getElementById('im').value);
+  if(isNaN(m)){ flashInput(); return; }
+
+  shots++; total++;
+  document.getElementById('hsh').textContent=shots;
+  document.getElementById('htot').textContent=total;
+  document.getElementById('bs').disabled=true;
+
+  // Distancia máxima según potencia
+  const power = getPower();
+  const maxDist = MAX_DIST * power;
+
+  // Dirección del disparo: hacia donde está el hoyo en X
+  const dir = hole.x >= ball.x ? 1 : -1;
+
+  // Punto final de la línea limitado por potencia
+  // La línea: y = ball.y + m*(x - ball.x)
+  // Longitud del segmento hasta maxDist unidades:
+  //   dist = |dx| * sqrt(1 + m²)  →  dx = maxDist / sqrt(1+m²)
+  const dxMax = maxDist / Math.sqrt(1 + m*m);
+  let ex = ball.x + dir * dxMax;
+  let ey = ball.y + m*(ex - ball.x);
+
+  // También clampar al borde del campo visible
+  const hw = OX()/SCALE() - 0.3;
+  const hh = OY()/SCALE() - 0.3;
+  if(ex > hw){ ex=hw; ey=ball.y+m*(ex-ball.x); }
+  if(ex < -hw){ ex=-hw; ey=ball.y+m*(ex-ball.x); }
+  if(ey > hh){ ey=hh; if(Math.abs(m)>0.001) ex=ball.x+(ey-ball.y)/m; }
+  if(ey < -hh){ ey=-hh; if(Math.abs(m)>0.001) ex=ball.x+(ey-ball.y)/m; }
+
+  // Colisiones a lo largo del segmento
+  let bestT=1, hitType='none', hitObs=null;
+  const tH=tLine(ball.x,ball.y,ex,ey,hole.x,hole.y,HR);
+  if(tH!==null&&tH<bestT){bestT=tH;hitType='hole';}
+  for(const o of obs){
+    const tO=tLine(ball.x,ball.y,ex,ey,o.x,o.y,o.r);
+    if(tO!==null&&tO<bestT){bestT=tO;hitType='obs';hitObs=o;}
+  }
+
+  const fx=ball.x+(ex-ball.x)*bestT;
+  const fy=ball.y+(ey-ball.y)*bestT;
+  const bc=tc(ball.x,ball.y), fc=tc(fx,fy);
+
+  // Guardar posición anterior por si sale (hitType='none'), la bola NO se mueve
+  const prevBall = {...ball};
+
+  lines.push({x1:bc.x,y1:bc.y,x2:fc.x,y2:fc.y,hit:hitType});
+
+  // Ecuación absoluta
+  const ba=ball.y-m*ball.x;
+  const bs2=ba>=0?`+ ${ba.toFixed(1)}`:`- ${Math.abs(ba).toFixed(1)}`;
+  document.getElementById('ceq').textContent=`f(x) = ${m.toFixed(1)}x ${bs2}`;
+
+  // Duración de animación proporcional a la distancia
+  const distPx = Math.hypot(fc.x-bc.x, fc.y-bc.y);
+  const dur = Math.max(20, Math.round(distPx * 0.18));
+
+  anim={sx:bc.x,sy:bc.y,ex:fc.x,ey:fc.y,t:0,dur,hitType,hitObs,fx,fy,m,prevBall};
+}
+
+function tLine(x1,y1,x2,y2,cx,cy,r){
+  const dx=x2-x1,dy=y2-y1,len2=dx*dx+dy*dy;
+  if(len2<0.0001) return null;
+  const t=Math.max(0,Math.min(1,((cx-x1)*dx+(cy-y1)*dy)/len2));
+  const px=x1+t*dx,py=y1+t*dy;
+  return Math.hypot(px-cx,py-cy)<=r?t:null;
+}
+
+function scoreLabel(s, par){
+  if(s===1)          return '¡Hoyo en uno!';
+  const d=s-par;
+  if(d<=-2) return 'Eagle';
+  if(d===-1) return 'Birdie';
+  if(d===0)  return 'Par';
+  if(d===1)  return 'Bogey';
+  if(d===2)  return 'Doble Bogey';
+  return `+${d}`;
+}
+
+function resolveShot(a){
+  if(a.hitType==='hole'){
+    // ✅ Hoyo: mover bola, celebrar, puntuar
+    ball={x:a.fx,y:a.fy};
+    burst(tc(hole.x,hole.y),'#a0e060');
+    gstate='scored';
+    const lbl=scoreLabel(shots, HOLES[holeIdx].par);
+    holePar.push({shots, par:HOLES[holeIdx].par, lbl});
+    document.getElementById('hres').textContent=lbl;
+    setTimeout(()=>showDone(lbl), 700);
+
+  } else if(a.hitType==='obs' && a.hitObs.type==='tree'){
+    // 🌲 Árbol: penalidad +1, bola VUELVE a posición anterior
+    shots++; total++;
+    document.getElementById('hsh').textContent=shots;
+    document.getElementById('htot').textContent=total;
+    ball={...a.prevBall};
+    burst(tc(a.fx,a.fy),'#e07070');
+    document.getElementById('bs').disabled=false;
+    showPenalty();
+
+  } else if(a.hitType==='obs' && a.hitObs.type==='pond'){
+    // 💧 Lago: bola queda al borde, no hay penalidad extra pero perdiste el golpe
+    ball={x:a.fx,y:a.fy};
+    burst(tc(a.fx,a.fy),'#4888c4');
+    document.getElementById('bs').disabled=false;
+    document.getElementById('cht').textContent='¡Lago! La bola quedó al borde — sigue desde ahí';
+
+  } else {
+    // ↩ Fuera del campo: la bola queda donde llegó y sigues desde ahí
+    ball={x:a.fx,y:a.fy};
+    document.getElementById('bs').disabled=false;
+    document.getElementById('cht').textContent='Tiro corto — la bola quedó ahí, sigue desde esa posición';
+  }
+}
+
+function showPenalty(){
+  overlayData={type:'penalty'};
+  setTimeout(()=>{
+    if(overlayData&&overlayData.type==='penalty'){
+      overlayData=null;
+      document.getElementById('cht').textContent='Penalidad +1 — la bola volvió al lugar anterior. Evita el árbol';
+    }
+  },1800);
+}
+
+function flashInput(){
+  const el=document.getElementById('im');
+  el.style.borderColor='#e07070';
+  setTimeout(()=>el.style.borderColor='',500);
+}
+
+// Partículas
+function burst(c,col){
+  for(let i=0;i<20;i++){
+    const a=(Math.PI*2/20)*i;
+    parts.push({x:c.x,y:c.y,vx:Math.cos(a)*3.5,vy:Math.sin(a)*3.5-1.5,life:1,col});
+  }
+}
+function stepParts(){
+  for(const p of parts){p.x+=p.vx;p.y+=p.vy;p.vy+=.14;p.life-=.026;}
+  parts=parts.filter(p=>p.life>0);
+}
+
+// ── Dibujo ───────────────────────────────────────────────────────────────────
+let wAnim=0;
+
+function draw(){
+  const W=cv.width, H=cv.height;
+  ctx.clearRect(0,0,W,H);
+
+  // Fondo fairway
+  ctx.fillStyle='#0e1a0e'; ctx.fillRect(0,0,W,H);
+  ctx.fillStyle='#1c3a14';
+  ctx.beginPath(); ctx.roundRect(10,10,W-20,H-20,8); ctx.fill();
+  ctx.fillStyle='#254d1c';
+  ctx.beginPath(); ctx.roundRect(18,18,W-36,H-36,6); ctx.fill();
+
+  // Líneas de hierba
+  ctx.save(); ctx.globalAlpha=.05; ctx.strokeStyle='#5aaa30'; ctx.lineWidth=1;
+  for(let y=28;y<H-28;y+=12){
+    ctx.beginPath(); ctx.moveTo(20,y); ctx.lineTo(W-20,y); ctx.stroke();
+  }
+  ctx.restore();
+
+  // Ejes
+  ctx.save(); ctx.globalAlpha=.2; ctx.strokeStyle='#6db86d'; ctx.lineWidth=1;
+  ctx.setLineDash([4,6]);
+  ctx.beginPath(); ctx.moveTo(20,OY()); ctx.lineTo(W-20,OY()); ctx.stroke();
+  ctx.beginPath(); ctx.moveTo(OX(),20); ctx.lineTo(OX(),H-20); ctx.stroke();
+  ctx.setLineDash([]);
+  // Números eje X
+  ctx.globalAlpha=.35; ctx.fillStyle='#90cc50'; ctx.font=`${Math.max(9,SCALE()*0.22)}px Space Mono`;
+  ctx.textAlign='center';
+  for(let x=-8;x<=8;x++){
+    if(x===0) continue;
+    const xc=OX()+x*SCALE();
+    if(xc<25||xc>W-25) continue;
+    ctx.beginPath(); ctx.moveTo(xc,OY()-3); ctx.lineTo(xc,OY()+3); ctx.stroke();
+    ctx.fillText(x,xc,OY()+13);
+  }
+  ctx.textAlign='right';
+  for(let y=-5;y<=5;y++){
+    if(y===0) continue;
+    const yc=OY()-y*SCALE();
+    if(yc<25||yc>H-25) continue;
+    ctx.beginPath(); ctx.moveTo(OX()-3,yc); ctx.lineTo(OX()+3,yc); ctx.stroke();
+    ctx.fillText(y,OX()-6,yc+3);
+  }
+  ctx.restore();
+
+  // Historial de golpes
+  for(const s of lines){
+    const col=s.hit==='hole'?'#80c840':s.hit==='obs'?'#e07070':'#f0c060';
+    ctx.save(); ctx.globalAlpha=.28; ctx.strokeStyle=col;
+    ctx.lineWidth=1.5; ctx.setLineDash([4,5]);
+    ctx.beginPath(); ctx.moveTo(s.x1,s.y1); ctx.lineTo(s.x2,s.y2); ctx.stroke();
+    ctx.restore();
+  }
+
+  // ── Preview función completa en dos tramos ──────────────────────────────
+  // Tramo extendido: función de borde a borde, muy tenue
+  // Tramo activo: desde la bola hasta donde llega según potencia, brillante
+  if(gstate==='playing'&&!anim){
+    const m=parseFloat(document.getElementById('im').value);
+    if(!isNaN(m)){
+      const bx=ball.x, by=ball.y;
+      const hw=OX()/SCALE()-0.3, hh=OY()/SCALE()-0.3;
+      const dir=hole.x>=bx?1:-1;
+
+      // Tramo activo: fin según potencia
+      const power=getPower();
+      const maxDist=MAX_DIST*power;
+      const dxMax=maxDist/Math.sqrt(1+m*m);
+      let ex=bx+dir*dxMax, ey=by+m*(ex-bx);
+      if(ex>hw){ex=hw; ey=by+m*(ex-bx);}
+      if(ex<-hw){ex=-hw; ey=by+m*(ex-bx);}
+      if(ey>hh){ey=hh; if(Math.abs(m)>0.001) ex=bx+(ey-by)/m;}
+      if(ey<-hh){ey=-hh; if(Math.abs(m)>0.001) ex=bx+(ey-by)/m;}
+
+      // Extremos totales de la función (borde izquierdo y derecho)
+      let lx=-hw, ly=by+m*(lx-bx);
+      if(ly>hh){ly=hh; if(Math.abs(m)>0.001) lx=bx+(ly-by)/m;}
+      if(ly<-hh){ly=-hh; if(Math.abs(m)>0.001) lx=bx+(ly-by)/m;}
+      let rx=hw, ry=by+m*(rx-bx);
+      if(ry>hh){ry=hh; if(Math.abs(m)>0.001) rx=bx+(ry-by)/m;}
+      if(ry<-hh){ry=-hh; if(Math.abs(m)>0.001) rx=bx+(ry-by)/m;}
+
+      const bc=tc(bx,by), ec=tc(ex,ey);
+      const lc=tc(lx,ly), rc=tc(rx,ry);
+
+      ctx.save();
+
+      // Tramo extendido completo: toda la recta de lado a lado, muy tenue
+      ctx.globalAlpha=.2;
+      ctx.strokeStyle='rgba(240,210,80,1)';
+      ctx.lineWidth=1;
+      ctx.setLineDash([2,10]);
+      ctx.beginPath(); ctx.moveTo(lc.x,lc.y); ctx.lineTo(rc.x,rc.y); ctx.stroke();
+
+      // Tramo activo: glow exterior
+      ctx.setLineDash([]);
+      ctx.globalAlpha=.1;
+      ctx.strokeStyle='rgba(240,210,80,1)';
+      ctx.lineWidth=14;
+      ctx.beginPath(); ctx.moveTo(bc.x,bc.y); ctx.lineTo(ec.x,ec.y); ctx.stroke();
+
+      // Tramo activo: línea punteada brillante
+      ctx.globalAlpha=.9;
+      ctx.strokeStyle='rgba(250,220,80,1)';
+      ctx.lineWidth=2.5;
+      ctx.setLineDash([9,5]);
+      ctx.beginPath(); ctx.moveTo(bc.x,bc.y); ctx.lineTo(ec.x,ec.y); ctx.stroke();
+
+      // Punto de llegada
+      ctx.setLineDash([]);
+      ctx.globalAlpha=.95;
+      ctx.fillStyle='rgba(250,220,80,1)';
+      ctx.beginPath(); ctx.arc(ec.x,ec.y,5,0,Math.PI*2); ctx.fill();
+      ctx.globalAlpha=.3;
+      ctx.strokeStyle='rgba(250,220,80,1)'; ctx.lineWidth=1.5;
+      ctx.beginPath(); ctx.arc(ec.x,ec.y,10,0,Math.PI*2); ctx.stroke();
+
+      ctx.restore();
+    }
+  }
+
+  // Obstáculos
+  for(const o of obs){
+    const oc=tc(o.x,o.y), r=o.r*SCALE();
+    if(o.type==='tree'){
+      ctx.fillStyle='#5a3e2b';
+      ctx.beginPath(); ctx.roundRect(oc.x-5,oc.y,10,r*.5,2); ctx.fill();
+      ctx.fillStyle='#1e5025';
+      ctx.beginPath(); ctx.arc(oc.x,oc.y-r*.15,r*.9,0,Math.PI*2); ctx.fill();
+      ctx.fillStyle='#2d7535';
+      ctx.beginPath(); ctx.arc(oc.x-r*.2,oc.y-r*.35,r*.6,0,Math.PI*2); ctx.fill();
+      ctx.fillStyle='#4aaa46';
+      ctx.beginPath(); ctx.arc(oc.x+r*.12,oc.y-r*.48,r*.42,0,Math.PI*2); ctx.fill();
+    } else {
+      ctx.save(); ctx.globalAlpha=.85;
+      ctx.fillStyle='#1e4a78';
+      ctx.beginPath(); ctx.ellipse(oc.x,oc.y,r,r*.55,0,0,Math.PI*2); ctx.fill();
+      ctx.strokeStyle='#4888c4'; ctx.lineWidth=1; ctx.globalAlpha=.3;
+      for(let i=0;i<3;i++){
+        ctx.beginPath(); ctx.ellipse(oc.x,oc.y,r*(0.4+i*.18),r*(0.22+i*.1),.2,0,Math.PI*2); ctx.stroke();
+      }
+      ctx.restore();
+    }
+  }
+
+  // Hoyo
+  const hc=tc(hole.x,hole.y), hr=HR*SCALE();
+  ctx.save(); ctx.globalAlpha=.3; ctx.fillStyle='#000';
+  ctx.beginPath(); ctx.ellipse(hc.x+2,hc.y+2,hr,hr*.5,0,0,Math.PI*2); ctx.fill();
+  ctx.restore();
+  ctx.fillStyle='#060e06';
+  ctx.beginPath(); ctx.arc(hc.x,hc.y,hr,0,Math.PI*2); ctx.fill();
+  ctx.strokeStyle='rgba(109,184,109,.5)'; ctx.lineWidth=1.5;
+  ctx.beginPath(); ctx.arc(hc.x,hc.y,hr,0,Math.PI*2); ctx.stroke();
+  // Bandera
+  ctx.strokeStyle='#c8a060'; ctx.lineWidth=2; ctx.lineCap='round';
+  ctx.beginPath(); ctx.moveTo(hc.x,hc.y); ctx.lineTo(hc.x,hc.y-26); ctx.stroke();
+  ctx.fillStyle='#e05040';
+  ctx.beginPath(); ctx.moveTo(hc.x,hc.y-26); ctx.lineTo(hc.x+13,hc.y-20); ctx.lineTo(hc.x,hc.y-14); ctx.closePath(); ctx.fill();
+  // Coords hoyo
+  ctx.font='9px Space Mono'; ctx.fillStyle='rgba(180,220,140,.4)'; ctx.textAlign='center';
+  ctx.fillText(`(${hole.x.toFixed(1)}, ${hole.y.toFixed(1)})`,hc.x,hc.y+hr+12);
+
+  // Bola (animada o estática)
+  let bc2;
+  if(anim){
+    const ease=t=>t<.5?2*t*t:-1+(4-2*t)*t;
+    const t=ease(Math.min(anim.t/anim.dur,1));
+    bc2={x:anim.sx+(anim.ex-anim.sx)*t, y:anim.sy+(anim.ey-anim.sy)*t};
+  } else {
+    bc2=tc(ball.x,ball.y);
+  }
+  // Sombra
+  ctx.save(); ctx.globalAlpha=.2; ctx.fillStyle='#000';
+  ctx.beginPath(); ctx.ellipse(bc2.x+2,bc2.y+3,BR*.7,BR*.35,0,0,Math.PI*2); ctx.fill();
+  ctx.restore();
+  // Bola
+  const bg2=ctx.createRadialGradient(bc2.x-2,bc2.y-2,1,bc2.x,bc2.y,BR);
+  bg2.addColorStop(0,'#fff'); bg2.addColorStop(.6,'#f5f0e8'); bg2.addColorStop(1,'#d0c8b8');
+  ctx.fillStyle=bg2; ctx.beginPath(); ctx.arc(bc2.x,bc2.y,BR,0,Math.PI*2); ctx.fill();
+  // Coords bola
+  ctx.font='9px Space Mono'; ctx.fillStyle='rgba(180,220,140,.4)'; ctx.textAlign='center';
+  ctx.fillText(`(${ball.x.toFixed(1)}, ${ball.y.toFixed(1)})`,bc2.x,bc2.y-BR-5);
+
+  // Overlay menú encima del canvas
+  if(gstate==='menu'){
+    ctx.save();
+    ctx.fillStyle='rgba(6,14,6,0.82)';
+    ctx.beginPath(); ctx.roundRect(10,10,cv.width-20,cv.height-20,8); ctx.fill();
+    ctx.fillStyle='rgba(245,240,232,.9)';
+    ctx.font=`bold ${Math.round(cv.width*0.042)}px Lora, serif`;
+    ctx.textAlign='center';
+    ctx.fillText('Golf Lineal',OX(),OY()-60);
+    ctx.fillStyle='rgba(109,184,109,.7)';
+    ctx.font=`${Math.round(cv.width*0.022)}px Space Mono`;
+    ctx.fillText('Escribe la pendiente m de f(x) = mx',OX(),OY()-28);
+    ctx.fillText('para que la bola llegue al hoyo.',OX(),OY()-8);
+    ctx.fillText('Evita obstáculos · Usa los golpes mínimos.',OX(),OY()+14);
+    // Botón
+    const bw=160, bh=38, bx2=OX()-bw/2, by2=OY()+36;
+    ctx.fillStyle='#6db86d';
+    ctx.beginPath(); ctx.roundRect(bx2,by2,bw,bh,6); ctx.fill();
+    ctx.fillStyle='#0a160a';
+    ctx.font=`bold ${Math.round(cv.width*0.022)}px Space Mono`;
+    ctx.fillText('COMENZAR',OX(),by2+bh/2+5);
+    ctx.restore();
+    menuBtnRect={x:bx2,y:by2,w:bw,h:bh};
+  } else {
+    menuBtnRect=null;
+  }
+
+  // Partículas
+  for(const p of parts){
+    ctx.save(); ctx.globalAlpha=p.life*.9;
+    ctx.fillStyle=p.col;
+    ctx.beginPath(); ctx.arc(p.x,p.y,3.5,0,Math.PI*2); ctx.fill();
+    ctx.restore();
+  }
+}
+
+let menuBtnRect=null;
+
+// ── Overlays en canvas para resultados ──────────────────────────────────────
+let overlayData=null; // {type:'done'|'card', data}
+
+function showDone(lbl){
+  const par=HOLES[holeIdx].par;
+  // m ideal: desde la posición INICIAL del hoyo (no desde donde está la bola ahora)
+  const cfg=HOLES[holeIdx];
+  const mIdeal=((cfg.hole.y-cfg.ball.y)/(cfg.hole.x-cfg.ball.x)).toFixed(2);
+  const diff=shots-par;
+  const diffStr=diff===0?'Par':diff>0?`+${diff} vs par`:`${diff} vs par`;
+  overlayData={type:'done',lbl,shots,par,mIdeal,diffStr,
+    hasNext:holeIdx+1<HOLES.length, next:holeIdx+2};
+}
+
+function showCard(){
+  overlayData={type:'card',holePar:[...holePar]};
+}
+
+function drawOverlay(){
+  if(!overlayData) return;
+  const W=cv.width,H=cv.height;
+  const d=overlayData;
+  ctx.save();
+
+  // Overlay de penalidad: más pequeño y temporal
+  if(d.type==='penalty'){
+    ctx.fillStyle='rgba(180,40,40,0.88)';
+    ctx.beginPath(); ctx.roundRect(W*.2,H*.3,W*.6,H*.4,10); ctx.fill();
+    ctx.strokeStyle='rgba(240,100,100,.4)'; ctx.lineWidth=1;
+    ctx.beginPath(); ctx.roundRect(W*.2,H*.3,W*.6,H*.4,10); ctx.stroke();
+    ctx.textAlign='center';
+    ctx.fillStyle='rgba(255,220,220,.95)';
+    ctx.font=`bold ${Math.round(W*.042)}px Lora, serif`;
+    ctx.fillText('🌲 ¡Árbol!',W/2,H*.48);
+    ctx.fillStyle='rgba(255,200,200,.75)';
+    ctx.font=`${Math.round(W*.022)}px Space Mono`;
+    ctx.fillText('Penalidad +1 golpe',W/2,H*.58);
+    ctx.fillStyle='rgba(255,180,180,.5)';
+    ctx.font=`${Math.round(W*.016)}px Space Mono`;
+    ctx.fillText('La bola vuelve a la posición anterior',W/2,H*.66);
+    ctx.restore();
+    return;
+  }
+
+  ctx.fillStyle='rgba(6,14,6,0.88)';
+  ctx.beginPath(); ctx.roundRect(W*.15,H*.08,W*.7,H*.84,10); ctx.fill();
+  ctx.strokeStyle='rgba(109,184,109,.3)'; ctx.lineWidth=1;
+  ctx.beginPath(); ctx.roundRect(W*.15,H*.08,W*.7,H*.84,10); ctx.stroke();
+
+  ctx.textAlign='center';
+  if(d.type==='done'){
+    // Color según resultado
+    const resCol=d.shots===1?'#ffd700':d.shots<d.par?'#a0e060':d.shots===d.par?'#f0c060':'#e07070';
+    ctx.fillStyle='rgba(245,240,232,.9)';
+    ctx.font=`bold ${Math.round(W*.044)}px Lora, serif`;
+    ctx.fillText(d.lbl,W/2,H*.26);
+    ctx.fillStyle=resCol;
+    ctx.font=`${Math.round(W*.028)}px Space Mono`;
+    ctx.fillText(`${d.shots} golpe${d.shots!==1?'s':''} · par ${d.par} · ${d.diffStr}`,W/2,H*.38);
+    ctx.fillStyle='rgba(160,220,100,.7)';
+    ctx.font=`${Math.round(W*.02)}px Space Mono`;
+    ctx.fillText(`Pendiente exacta del hoyo: m = ${d.mIdeal}`,W/2,H*.50);
+    ctx.fillStyle='rgba(240,192,96,.5)';
+    ctx.font=`${Math.round(W*.016)}px Lora, serif`;
+    ctx.fillText(`f(x) = ${d.mIdeal}x era la función que pasaba por el hoyo`,W/2,H*.59);
+
+    const bw=150,bh=34,bx2=W/2-bw/2,by2=H*.72;
+    ctx.fillStyle='#6db86d';
+    ctx.beginPath(); ctx.roundRect(bx2,by2,bw,bh,5); ctx.fill();
+    ctx.fillStyle='#0a160a';
+    ctx.font=`bold ${Math.round(W*.02)}px Space Mono`;
+    ctx.fillText(d.hasNext?`Hoyo ${d.next} →`:'Ver tarjeta →',W/2,by2+bh/2+5);
+    overlayBtnRect={x:bx2,y:by2,w:bw,h:bh,action:d.hasNext?'next':'card'};
+
+  } else if(d.type==='card'){
+    ctx.fillStyle='rgba(245,240,232,.92)';
+    ctx.font=`bold ${Math.round(W*.038)}px Lora, serif`;
+    ctx.fillText('Tarjeta de puntuación',W/2,H*.18);
+    const rows=d.holePar;
+    // Header
+    ctx.font=`${Math.round(W*.016)}px Space Mono`;
+    ctx.fillStyle='rgba(109,184,109,.55)';
+    const colX=[W*.25,W*.38,W*.52,W*.66,W*.8];
+    ['Hoyo','Par','Golpes','Dif.','Resultado'].forEach((h,i)=>
+      ctx.fillText(h,colX[i],H*.28));
+    // Línea separadora
+    ctx.strokeStyle='rgba(109,184,109,.2)'; ctx.lineWidth=1;
+    ctx.beginPath(); ctx.moveTo(W*.18,H*.305); ctx.lineTo(W*.88,H*.305); ctx.stroke();
+    // Filas
+    let tot=0,totPar=0;
+    const rowH=H*(rows.length<=4?0.1:0.08);
+    rows.forEach((r,i)=>{
+      const diff=r.shots-r.par; tot+=r.shots; totPar+=r.par;
+      const col=r.shots===1?'#ffd700':diff<0?'#a0e060':diff===0?'rgba(245,240,232,.8)':'#e07070';
+      ctx.fillStyle=col;
+      ctx.font=`${Math.round(W*.017)}px Space Mono`;
+      const y=H*.33+i*rowH;
+      [i+1, r.par, r.shots, (diff>0?'+':'')+diff, r.lbl].forEach((v,j)=>
+        ctx.fillText(v,colX[j],y));
+    });
+    // Línea y total
+    const totY=H*.33+rows.length*rowH+4;
+    ctx.strokeStyle='rgba(109,184,109,.2)'; ctx.lineWidth=1;
+    ctx.beginPath(); ctx.moveTo(W*.18,totY-8); ctx.lineTo(W*.88,totY-8); ctx.stroke();
+    const td=tot-totPar;
+    ctx.fillStyle='rgba(240,192,96,.9)';
+    ctx.font=`bold ${Math.round(W*.02)}px Space Mono`;
+    ctx.fillText(`Total: ${tot} golpes   ${td>0?'+':''}${td} vs par`,W/2,totY+14);
+
+    const bw=150,bh=34,bx2=W/2-bw/2,by2=H*.88;
+    ctx.fillStyle='#6db86d';
+    ctx.beginPath(); ctx.roundRect(bx2,by2,bw,bh,5); ctx.fill();
+    ctx.fillStyle='#0a160a';
+    ctx.font=`bold ${Math.round(W*.02)}px Space Mono`;
+    ctx.fillText('Jugar de nuevo',W/2,by2+bh/2+5);
+    overlayBtnRect={x:bx2,y:by2,w:bw,h:bh,action:'restart'};
+  }
+  ctx.restore();
+}
+
+let overlayBtnRect=null;
+
+// ── Input / clicks ──────────────────────────────────────────────────────────
+cv.addEventListener('click',e=>{
+  const r=cv.getBoundingClientRect();
+  const sx=cv.width/r.width, sy=cv.height/r.height;
+  const mx=(e.clientX-r.left)*sx, my=(e.clientY-r.top)*sy;
+
+  if(menuBtnRect && mx>=menuBtnRect.x && mx<=menuBtnRect.x+menuBtnRect.w &&
+     my>=menuBtnRect.y && my<=menuBtnRect.y+menuBtnRect.h){
+    holeIdx=0; total=0; holePar=[];
+    document.getElementById('htot').textContent='0';
+    loadHole(); return;
+  }
+  if(overlayBtnRect && mx>=overlayBtnRect.x && mx<=overlayBtnRect.x+overlayBtnRect.w &&
+     my>=overlayBtnRect.y && my<=overlayBtnRect.y+overlayBtnRect.h){
+    const act=overlayBtnRect.action;
+    overlayData=null; overlayBtnRect=null;
+    if(act==='next'){ holeIdx++; loadHole(); }
+    else if(act==='card'){ showCard(); }
+    else if(act==='restart'){ holeIdx=0; total=0; holePar=[];
+      document.getElementById('htot').textContent='0'; loadHole(); }
+    return;
+  }
+});
+
+document.getElementById('bs').addEventListener('click',shoot);
+document.getElementById('im').addEventListener('keydown',e=>{if(e.key==='Enter')shoot();});
+document.getElementById('bmn').addEventListener('click',()=>{ gstate='menu'; overlayData=null; });
+document.getElementById('im').addEventListener('input',()=>{
+  if(gstate!=='playing') return;
+  const m=parseFloat(document.getElementById('im').value);
+  if(isNaN(m)) return;
+  const ba=ball.y-m*ball.x;
+  const bs2=ba>=0?`+ ${ba.toFixed(1)}`:`- ${Math.abs(ba).toFixed(1)}`;
+  document.getElementById('ceq').textContent=`f(x) = ${m.toFixed(1)}x ${bs2}`;
+});
+
+document.getElementById('pow').addEventListener('input',()=>{
+  document.getElementById('pow-val').textContent=
+    document.getElementById('pow').value+'%';
+});
+
+// ── Loop ────────────────────────────────────────────────────────────────────
+function loop(){
+  wAnim++;
+  if(anim){
+    anim.t++;
+    if(anim.t>=anim.dur){ resolveShot(anim); anim=null;
+      if(gstate==='playing') document.getElementById('bs').disabled=false; }
+  }
+  stepParts();
+  draw();
+  drawOverlay();
+  requestAnimationFrame(loop);
+}
+
+// Init con hoyo 1 visible desde el primer frame
+const cfg0=HOLES[0];
+ball={...cfg0.ball}; hole={...cfg0.hole};
+obs=cfg0.obs.map(o=>({...o})); lines=[];
+gstate='menu';
+loop();
+</script>
+</body>
+</html>
