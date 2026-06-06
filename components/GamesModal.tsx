@@ -25,6 +25,11 @@ const MINIGAMES = [
     description: 'Dibuja la función que guía la semilla a las estrellas',
   },
   {
+    id: 'golf-lineal',
+    title: 'Golf Lineal',
+    description: 'Ajusta la pendiente m para embocar la bola en el hoyo',
+  },
+  {
     id: 'salto-del-rio',
     title: 'Salto del Río',
     description: 'Arrastra para saltar y sigue la función cuadrática de tu trayectoria',
