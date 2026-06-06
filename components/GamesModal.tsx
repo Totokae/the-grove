@@ -4,6 +4,7 @@ import { useEffect, useState } from 'react';
 import MercadoMatematico from '@/components/MercadoMatematico';
 import SaltoDelRio from '@/components/SaltoDelRio';
 import SeedDrop from '@/components/SeedDrop';
+import TiroLibre from '@/components/TiroLibre';
 
 interface GamesModalProps {
   isOpen: boolean;
@@ -27,6 +28,11 @@ const MINIGAMES = [
     title: 'Salto del Río',
     description: 'Arrastra para saltar y sigue la función cuadrática de tu trayectoria',
   },
+  {
+    id: 'tiro-libre',
+    title: 'Tiro Libre',
+    description: 'Ajusta m y b para encestar sin tocar la barrera',
+  },
 ] as const;
 
 type GameId = (typeof MINIGAMES)[number]['id'];
@@ -36,6 +42,7 @@ export default function GamesModal({ isOpen, onClose, onAwardSeeds }: GamesModal
   const [mercadoKey, setMercadoKey] = useState(0);
   const [seedDropKey, setSeedDropKey] = useState(0);
   const [saltoDelRioKey, setSaltoDelRioKey] = useState(0);
+  const [tiroLibreKey, setTiroLibreKey] = useState(0);
 
   useEffect(() => {
     if (isOpen) setView('menu');
@@ -70,7 +77,13 @@ export default function GamesModal({ isOpen, onClose, onAwardSeeds }: GamesModal
         aria-modal="true"
         aria-labelledby={view === 'menu' ? 'games-modal-title' : undefined}
         className={`relative w-full rounded-xl border-4 border-[#3e2723] bg-[#5d4037] shadow-2xl overflow-hidden ${
-          view === 'salto-del-rio' ? 'max-w-[860px]' : view === 'seed-drop' ? 'max-w-xl' : 'max-w-lg'
+          view === 'salto-del-rio'
+            ? 'max-w-[860px]'
+            : view === 'tiro-libre'
+              ? 'max-w-[820px]'
+              : view === 'seed-drop'
+                ? 'max-w-xl'
+                : 'max-w-lg'
         }`}
         onClick={(e) => e.stopPropagation()}
       >
@@ -110,6 +123,7 @@ export default function GamesModal({ isOpen, onClose, onAwardSeeds }: GamesModal
                       if (game.id === 'mercado-matematico') setMercadoKey((k) => k + 1);
                       if (game.id === 'seed-drop') setSeedDropKey((k) => k + 1);
                       if (game.id === 'salto-del-rio') setSaltoDelRioKey((k) => k + 1);
+                      if (game.id === 'tiro-libre') setTiroLibreKey((k) => k + 1);
                       setView(game.id);
                     }}
                     className="shrink-0 px-5 py-2 rounded-lg bg-[#efebe9] text-[#3e2723] font-bold border-b-4 border-[#bcaaa4] hover:translate-y-0.5 hover:border-b-2 active:border-b-0 transition-all"
@@ -146,6 +160,15 @@ export default function GamesModal({ isOpen, onClose, onAwardSeeds }: GamesModal
         {view === 'salto-del-rio' && (
           <SaltoDelRio
             key={saltoDelRioKey}
+            onBackToMenu={() => setView('menu')}
+            onExitToGame={onClose}
+          />
+        )}
+
+        {/* ── Tiro Libre ── */}
+        {view === 'tiro-libre' && (
+          <TiroLibre
+            key={tiroLibreKey}
             onBackToMenu={() => setView('menu')}
             onExitToGame={onClose}
           />

@@ -1,0 +1,884 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Tiro Libre</title>
+<link href="https://fonts.googleapis.com/css2?family=Lora:ital,wght@0,400;0,600;1,400&family=Space+Mono:wght@400;700&display=swap" rel="stylesheet">
+<style>
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0;}
+:root{
+  --grass:#2d5a1b;--grass-l:#3d7a25;--grass-ll:#4d9a2f;
+  --night:#0a1208;--leaf:#6db86d;--sun:#f0c060;--cream:#f5f0e8;
+  --ui-bg:rgba(6,14,4,0.94);--ui-border:rgba(109,184,109,0.22);
+  --ball:#f5f0e8;--goal:#e8e8e8;--barrier:#e05030;
+}
+html,body{height:100%;margin:0;}
+body{
+  background:var(--night);display:flex;flex-direction:column;
+  align-items:center;justify-content:center;
+  min-height:100%;font-family:'Space Mono',monospace;
+  overflow:hidden;user-select:none;padding:8px;
+}
+#wrap{width:100%;max-width:780px;}
+
+/* HUD */
+#hud{display:flex;justify-content:space-between;align-items:center;
+  padding:6px 0;flex-wrap:wrap;gap:6px;}
+.hg{display:flex;gap:18px;}
+.hi{font-size:9px;color:rgba(245,240,232,.35);text-transform:uppercase;letter-spacing:.12em;}
+.hv{font-size:15px;font-weight:700;color:var(--leaf);}
+#lvl-badge{font-size:10px;padding:3px 12px;border-radius:20px;
+  background:rgba(109,184,109,.1);border:1px solid var(--ui-border);
+  color:var(--leaf);letter-spacing:.1em;}
+
+canvas{display:block;width:100%;border-radius:8px;border:1px solid var(--ui-border);}
+
+/* Panel sliders */
+#ctrl{
+  background:var(--ui-bg);border:1px solid var(--ui-border);border-radius:8px;
+  padding:12px 18px;margin-top:6px;display:flex;
+  align-items:center;gap:18px;flex-wrap:wrap;
+}
+.ctrl-eq{flex:1;min-width:160px;}
+#ceq{font-family:'Lora',serif;font-size:17px;color:var(--sun);letter-spacing:.02em;margin-bottom:3px;}
+#csub{font-size:10px;color:rgba(245,240,232,.3);letter-spacing:.06em;}
+
+.sliders{flex:2;min-width:240px;display:flex;flex-direction:column;gap:10px;}
+.sl-row{display:flex;align-items:center;gap:10px;}
+.sl-name{font-size:12px;color:var(--leaf);font-weight:700;width:14px;text-align:center;}
+.sl-track{flex:1;}
+.sl-track input[type=range]{width:100%;}
+.sl-val{font-size:12px;font-weight:700;color:var(--cream);min-width:42px;text-align:right;}
+
+#btn-shoot{
+  font-family:'Space Mono',monospace;font-size:11px;padding:10px 22px;
+  background:var(--leaf);color:#060e04;border:none;border-radius:6px;
+  cursor:pointer;font-weight:700;letter-spacing:.08em;white-space:nowrap;
+  transition:opacity .2s;
+}
+#btn-shoot:hover{opacity:.82;}
+#btn-shoot:disabled{opacity:.3;cursor:default;}
+
+#bbar{display:flex;justify-content:space-between;align-items:center;padding:5px 0;}
+.ht{font-size:10px;color:rgba(245,240,232,.28);letter-spacing:.06em;}
+#bmn{font-family:'Space Mono',monospace;font-size:10px;padding:4px 12px;
+  background:transparent;color:var(--leaf);border:1px solid var(--ui-border);
+  border-radius:5px;cursor:pointer;}
+#bmn:hover{background:rgba(109,184,109,.08);}
+
+/* Sliders */
+input[type=range]{-webkit-appearance:none;height:4px;border-radius:2px;
+  background:rgba(109,184,109,.22);outline:none;cursor:pointer;}
+input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;width:15px;height:15px;
+  border-radius:50%;background:var(--leaf);cursor:pointer;}
+input[type=range]::-moz-range-thumb{width:15px;height:15px;border-radius:50%;
+  background:var(--leaf);border:none;}
+</style>
+</head>
+<body>
+<div id="wrap">
+  <div id="hud">
+    <div class="hg">
+      <div><div class="hi">Nivel</div><div class="hv" id="hlvl">1</div></div>
+      <div><div class="hi">Intentos</div><div class="hv" id="hatt">0</div></div>
+      <div><div class="hi">Goles</div><div class="hv" id="hgol">0</div></div>
+    </div>
+    <div id="lvl-badge">TIRO LIBRE</div>
+  </div>
+
+  <canvas id="c"></canvas>
+
+  <div id="ctrl">
+    <div class="ctrl-eq">
+      <div id="ceq">f(x) = — x + —</div>
+      <div id="csub">Ajusta m y b para definir el tiro</div>
+    </div>
+    <div class="sliders">
+      <div class="sl-row">
+        <div class="sl-name">m</div>
+        <div class="sl-track">
+          <input type="range" id="sl-m" min="-5" max="5" step="0.1" value="0.5">
+        </div>
+        <div class="sl-val" id="sv-m">+0.5</div>
+      </div>
+      <div class="sl-row">
+        <div class="sl-name">b</div>
+        <div class="sl-track">
+          <input type="range" id="sl-b" min="-5" max="5" step="0.1" value="0">
+        </div>
+        <div class="sl-val" id="sv-b">0.0</div>
+      </div>
+    </div>
+    <button id="btn-shoot">Tirar ▶</button>
+  </div>
+
+  <div id="bbar">
+    <div class="ht" id="hint">Ajusta m y b para que la bola entre al arco sin tocar la barrera</div>
+    <button id="bmn">☰ menú</button>
+  </div>
+</div>
+
+<script>
+const cv = document.getElementById('c');
+const ctx = cv.getContext('2d');
+
+// ── Canvas responsivo ──────────────────────────────────────────────────────
+function resize(){
+  const w = Math.min(780, window.innerWidth - 20);
+  cv.width  = w;
+  cv.height = Math.round(w * 0.52);
+}
+resize();
+window.addEventListener('resize', ()=>{ resize(); });
+
+// ── Sistema de coordenadas ─────────────────────────────────────────────────
+// Origen matemático: centro-izquierda del canvas (eje Y en x=0 del canvas)
+// x_math ∈ [0, X_MAX]  →  el personaje siempre está en x=0
+// y_math ∈ [-Y_MAX, Y_MAX]  →  0 es el centro vertical
+//
+// x_canvas = PAD_L + x_math * SCALE
+// y_canvas = H/2   - y_math * SCALE   (Y invertido)
+
+const PAD_L = ()=> cv.width  * 0.08;  // margen izquierdo en px
+const PAD_R = ()=> cv.width  * 0.06;  // margen derecho
+const SCALE  = ()=> (cv.width - PAD_L() - PAD_R()) / 12; // 12 unidades de ancho
+const X_MAX  = ()=> (cv.width - PAD_L() - PAD_R()) / SCALE();
+const Y_MAX  = ()=> (cv.height * 0.5) / SCALE();
+
+function tc(mx, my){
+  return {
+    x: PAD_L() + mx * SCALE(),
+    y: cv.height/2 - my * SCALE()
+  };
+}
+function tm(cx, cy){
+  return {
+    x: (cx - PAD_L()) / SCALE(),
+    y: (cv.height/2 - cy) / SCALE()
+  };
+}
+
+// ── Niveles ────────────────────────────────────────────────────────────────
+// barrier: {x, yBot, yTop}  en coords math (x desde 0, y relativo al centro)
+// goal: {x, yBot, yTop}     el arco, siempre cerca del borde derecho
+// La función f(x) = m*x + b  con x ∈ [0, X_MAX]
+// El personaje está en x = 0, b decide desde dónde sale el tiro
+
+const LEVELS = [
+  {
+    label: 'Nivel 1 — El primer tiro',
+    hint:  'No hay barrera — practica ajustando m y b para apuntar al arco',
+    barriers: [],
+    goal:    { yBot: -1.5, yTop: 1.5 },
+    mRange:  [-3, 3],
+    bRange:  [-3, 3],
+  },
+  {
+    label: 'Nivel 2 — La barrera baja',
+    hint:  'La barrera tapa la parte baja — sube b o aumenta m para pasar por arriba',
+    barriers: [{ x: 5, yBot: -4, yTop: 0.8 }],
+    goal:    { yBot: -1.2, yTop: 1.2 },
+    mRange:  [-3, 3],
+    bRange:  [-3, 3],
+  },
+  {
+    label: 'Nivel 3 — La barrera alta',
+    hint:  'La barrera tapa la parte alta — baja b o reduce m para pasar por abajo',
+    barriers: [{ x: 5, yBot: -0.6, yTop: 4 }],
+    goal:    { yBot: -1.2, yTop: 1.2 },
+    mRange:  [-3, 3],
+    bRange:  [-3, 3],
+  },
+  {
+    label: 'Nivel 4 — La ventana',
+    hint:  'Solo hay un hueco en el medio — encuentra la pendiente exacta',
+    barriers: [
+      { x: 5, yBot: -4,   yTop: -0.8 },
+      { x: 5, yBot:  0.8, yTop:  4   },
+    ],
+    goal:    { yBot: -1.0, yTop: 1.0 },
+    mRange:  [-3, 3],
+    bRange:  [-3, 3],
+  },
+  {
+    label: 'Nivel 5 — El zigzag',
+    hint:  'El 1er tronco tapa arriba y el 2do tapa abajo — la bola tiene que subir entre ambos',
+    barriers: [
+      { x: 4, yBot:  0.6, yTop:  4 },
+      { x: 8, yBot: -4,   yTop: -0.6 },
+    ],
+    goal:    { yBot: -1.0, yTop: 1.0 },
+    mRange:  [-4, 4],
+    bRange:  [-4, 4],
+  },
+  {
+    label: 'Nivel 6 — El maestro',
+    hint:  'Tres barreras — necesitas la función exacta',
+    barriers: [
+      { x: 2.5, yBot:  0.4, yTop:  4   },
+      { x: 5.5, yBot: -4,   yTop: -0.2 },
+      { x: 8.5, yBot:  0.2, yTop:  4   },
+    ],
+    goal:    { yBot: -0.8, yTop: 0.8 },
+    mRange:  [-5, 5],
+    bRange:  [-5, 5],
+  },
+];
+
+// ── Estado ──────────────────────────────────────────────────────────────────
+let gstate  = 'menu';
+let lvlIdx  = 0, attempts = 0, goals = 0;
+let paramM  = 0.5, paramB = 0.0;
+let anim    = null; // {t, dur, pts[], result:'goal'|'barrier'|'miss'}
+let parts   = [];
+let wAnim   = 0;
+let overlayData = null, overlayBtn = null, menuBtn = null;
+
+// ── Arquero ────────────────────────────────────────────────────────────────
+// gkY: posición vertical del arquero en coords math (se randomiza por nivel)
+// gkDir: dirección del movimiento (-1 izq, 1 der)
+// gkSpeed: velocidad de oscilación
+let gkY = 0, gkDir = 1, gkSpeed = 0, gkRange = 0;
+
+function randomizeGoalkeeper(){
+  const cfg = LEVELS[lvlIdx];
+  const halfGoal = (cfg.goal.yTop - cfg.goal.yBot) / 2;
+  const center   = (cfg.goal.yTop + cfg.goal.yBot) / 2;
+  // Posición inicial aleatoria dentro del arco, descentrada
+  const offset   = (Math.random() - 0.5) * (cfg.goal.yTop - cfg.goal.yBot) * 0.8;
+  gkY     = center + offset;
+  gkDir   = Math.random() < 0.5 ? 1 : -1;
+  gkSpeed = 0.012 + Math.random() * 0.018; // oscilación suave
+  gkRange = halfGoal * 0.9;
+}
+
+function stepGoalkeeper(){
+  if(gstate !== 'playing' || anim) return;
+  const cfg    = LEVELS[lvlIdx];
+  const center = (cfg.goal.yTop + cfg.goal.yBot) / 2;
+  gkY += gkDir * gkSpeed;
+  if(gkY > center + gkRange){ gkDir = -1; }
+  if(gkY < center - gkRange){ gkDir =  1; }
+}
+
+// ── Cargar nivel ────────────────────────────────────────────────────────────
+function loadLevel(){
+  const cfg = LEVELS[lvlIdx];
+  attempts = 0; anim = null; parts = [];
+  overlayData = null;
+  paramM = 0.5; paramB = 0.0;
+  document.getElementById('sl-m').min   = cfg.mRange[0];
+  document.getElementById('sl-m').max   = cfg.mRange[1];
+  document.getElementById('sl-m').value = 0.5;
+  document.getElementById('sl-b').min   = cfg.bRange[0];
+  document.getElementById('sl-b').max   = cfg.bRange[1];
+  document.getElementById('sl-b').value = 0;
+  document.getElementById('hlvl').textContent = lvlIdx + 1;
+  document.getElementById('hatt').textContent = 0;
+  document.getElementById('lvl-badge').textContent = cfg.label;
+  document.getElementById('hint').textContent = cfg.hint;
+  document.getElementById('btn-shoot').disabled = false;
+  updateEq();
+  randomizeGoalkeeper();
+  gstate = 'playing';
+}
+
+function updateEq(){
+  const m = paramM, b = paramB;
+  const mStr = (m >= 0 ? '+' : '') + m.toFixed(1);
+  const bStr = (b >= 0 ? '+' : '') + b.toFixed(1);
+  document.getElementById('ceq').textContent = `f(x) = ${mStr}x ${bStr}`;
+  document.getElementById('sv-m').textContent = mStr;
+  document.getElementById('sv-b').textContent = bStr;
+}
+
+// ── Disparar ────────────────────────────────────────────────────────────────
+// La bola sigue f(x) = m*x + b desde x=0 hasta x=X_MAX
+// Comprobamos colisión con barreras y si entra al arco
+
+function shoot(){
+  if(gstate !== 'playing' || anim) return;
+  attempts++;
+  document.getElementById('hatt').textContent = attempts;
+  document.getElementById('btn-shoot').disabled = true;
+
+  const cfg   = LEVELS[lvlIdx];
+  const m = paramM, b = paramB;
+  const xEnd  = X_MAX();
+  const goalX = xEnd; // el arco está al final
+
+  // Muestrear la trayectoria en pasos finos para detectar colisiones
+  const STEPS = 300;
+  let result  = 'miss';
+  let hitX    = xEnd, hitY = m * xEnd + b;
+
+  for(let i = 1; i <= STEPS; i++){
+    const t  = i / STEPS;
+    const xm = xEnd * t;
+    const ym = m * xm + b;
+
+    // Colisión con barreras
+    for(const bar of cfg.barriers){
+      if(Math.abs(xm - bar.x) < xEnd / STEPS * 1.5){
+        if(ym >= bar.yBot && ym <= bar.yTop){
+          result = 'barrier'; hitX = xm; hitY = ym;
+          break;
+        }
+      }
+    }
+    if(result === 'barrier') break;
+
+    // Llegó al arco
+    if(xm >= xEnd - 0.1){
+      if(ym >= cfg.goal.yBot && ym <= cfg.goal.yTop){
+        // Verificar si el arquero lo para (radio del arquero = 0.45 u)
+        const GK_R = 0.45;
+        if(Math.abs(ym - gkY) <= GK_R){
+          result = 'goalkeeper'; hitX = xm; hitY = ym;
+        } else {
+          result = 'goal'; hitX = xm; hitY = ym;
+        }
+      }
+      break;
+    }
+  }
+
+  // Construir puntos de la trayectoria (en canvas)
+  const numPts = 60;
+  const pts = [];
+  const finalXm = result === 'barrier' ? hitX : xEnd;
+  for(let i = 0; i <= numPts; i++){
+    const xm = finalXm * (i / numPts);
+    const ym = m * xm + b;
+    pts.push(tc(xm, ym));
+  }
+
+  const dur = Math.max(30, Math.round(pts.length * 0.9));
+  anim = { t: 0, dur, pts, result, hitX, hitY };
+}
+
+// ── Resolver animación ────────────────────────────────────────────────────
+function resolveAnim(){
+  const cfg = LEVELS[lvlIdx];
+  if(anim.result === 'goal'){
+    goals++;
+    document.getElementById('hgol').textContent = goals;
+    burstAt(tc(anim.hitX, anim.hitY), '#a0e060');
+    gstate = 'scored';
+    setTimeout(() => showGoal(), 600);
+  } else if(anim.result === 'barrier'){
+    burstAt(tc(anim.hitX, anim.hitY), '#e05030');
+    document.getElementById('hint').textContent = '¡Barrera! Ajusta m o b para esquivarla';
+    document.getElementById('btn-shoot').disabled = false;
+    gstate = 'playing';
+  } else if(anim.result === 'goalkeeper'){
+    burstAt(tc(anim.hitX, anim.hitY), '#4888c4');
+    randomizeGoalkeeper(); // el arquero se mueve tras la atajada
+    document.getElementById('hint').textContent = '¡El arquero lo atajó! Ajusta b para esquivarlo';
+    document.getElementById('btn-shoot').disabled = false;
+    gstate = 'playing';
+  } else {
+    document.getElementById('hint').textContent = '¡Fuera del arco! Ajusta la pendiente m o el origen b';
+    document.getElementById('btn-shoot').disabled = false;
+    gstate = 'playing';
+  }
+  anim = null;
+}
+
+// ── Partículas ───────────────────────────────────────────────────────────────
+function burstAt(c, col){
+  for(let i = 0; i < 22; i++){
+    const a = (Math.PI * 2 / 22) * i;
+    const s = 2 + Math.random() * 3.5;
+    parts.push({ x: c.x, y: c.y, vx: Math.cos(a)*s, vy: Math.sin(a)*s - 1.5, life: 1, col });
+  }
+}
+function stepParts(){
+  for(const p of parts){ p.x += p.vx; p.y += p.vy; p.vy += 0.15; p.life -= 0.025; }
+  parts = parts.filter(p => p.life > 0);
+}
+
+// ── Overlays ──────────────────────────────────────────────────────────────
+function showGoal(){
+  const cfg = LEVELS[lvlIdx];
+  const hasNext = lvlIdx + 1 < LEVELS.length;
+  const mStr = paramM.toFixed(1), bStr = (paramB >= 0 ? '+' : '') + paramB.toFixed(1);
+  overlayData = { type:'goal', attempts, mStr, bStr, hasNext, next: lvlIdx + 2 };
+}
+function showMenu(){
+  gstate = 'menu'; overlayData = null;
+}
+
+// ── Dibujo ────────────────────────────────────────────────────────────────
+function draw(){
+  const W = cv.width, H = cv.height;
+  ctx.clearRect(0, 0, W, H);
+
+  // ── Fondo campo de fútbol ──────────────────────────────────────────────
+  // Cielo nocturno
+  ctx.fillStyle = '#070e07'; ctx.fillRect(0, 0, W, H);
+
+  // Césped (franjas alternadas)
+  const stripeW = SCALE() * 2;
+  for(let sx = PAD_L(); sx < W - PAD_R(); sx += stripeW){
+    ctx.fillStyle = sx % (stripeW * 2) < stripeW ? '#1e4a14' : '#234f18';
+    ctx.fillRect(sx, 0, Math.min(stripeW, W - PAD_R() - sx), H);
+  }
+
+  // Línea central horizontal (eje X = 0 del campo)
+  ctx.save();
+  ctx.strokeStyle = 'rgba(255,255,255,0.08)'; ctx.lineWidth = 1; ctx.setLineDash([6,8]);
+  ctx.beginPath(); ctx.moveTo(PAD_L(), H/2); ctx.lineTo(W - PAD_R(), H/2); ctx.stroke();
+  ctx.setLineDash([]);
+  ctx.restore();
+
+  // ── Ejes matemáticos ──────────────────────────────────────────────────
+  ctx.save();
+  // Eje Y (línea vertical en x=0, sobre el personaje)
+  ctx.globalAlpha = .22; ctx.strokeStyle = '#6db86d'; ctx.lineWidth = 1; ctx.setLineDash([4,7]);
+  ctx.beginPath(); ctx.moveTo(PAD_L(), 20); ctx.lineTo(PAD_L(), H - 20); ctx.stroke();
+  // Eje X
+  ctx.beginPath(); ctx.moveTo(PAD_L(), H/2); ctx.lineTo(W - PAD_R(), H/2); ctx.stroke();
+  ctx.setLineDash([]);
+
+  // Marcas eje Y (b)
+  ctx.globalAlpha = .3; ctx.fillStyle = '#90cc50';
+  ctx.font = `${Math.max(8, SCALE() * 0.2)}px Space Mono`;
+  ctx.textAlign = 'right';
+  for(let y = -5; y <= 5; y++){
+    const yc = tc(0, y).y;
+    if(yc < 15 || yc > H - 15) continue;
+    ctx.fillText(y, PAD_L() - 4, yc + 3);
+    ctx.globalAlpha = .12; ctx.strokeStyle = '#6db86d'; ctx.lineWidth = 1;
+    ctx.beginPath(); ctx.moveTo(PAD_L(), yc); ctx.lineTo(W - PAD_R(), yc); ctx.stroke();
+    ctx.globalAlpha = .3;
+  }
+  // Marcas eje X
+  ctx.textAlign = 'center';
+  for(let x = 1; x <= Math.floor(X_MAX()); x++){
+    const xc = tc(x, 0).x;
+    if(xc > W - PAD_R() - 5) continue;
+    ctx.fillText(x, xc, H/2 + 13);
+  }
+  ctx.restore();
+
+  // ── Preview función completa ───────────────────────────────────────────
+  if(gstate === 'playing' && !anim){
+    const m = paramM, b = paramB;
+    const xEnd = X_MAX();
+
+    // Función extendida (toda la recta a través del canvas)
+    // Calculamos extremos: x va de 0 al borde derecho
+    const yAtLeft  = b;             // f(0)
+    const yAtRight = m * xEnd + b;  // f(X_MAX)
+
+    const pL = tc(0, yAtLeft);
+    const pR = tc(xEnd, yAtRight);
+
+    // Tramo extendido tenue (toda la recta)
+    ctx.save();
+    ctx.globalAlpha = .18;
+    ctx.strokeStyle = 'rgba(240,210,80,1)';
+    ctx.lineWidth = 1;
+    ctx.setLineDash([2, 10]);
+    ctx.beginPath(); ctx.moveTo(pL.x, pL.y); ctx.lineTo(pR.x, pR.y); ctx.stroke();
+    ctx.setLineDash([]);
+
+    // Tramo activo: glow
+    ctx.globalAlpha = .1;
+    ctx.strokeStyle = 'rgba(240,210,80,1)';
+    ctx.lineWidth = 14;
+    ctx.beginPath(); ctx.moveTo(pL.x, pL.y); ctx.lineTo(pR.x, pR.y); ctx.stroke();
+
+    // Tramo activo: línea brillante
+    ctx.globalAlpha = .9;
+    ctx.strokeStyle = 'rgba(250,220,80,1)';
+    ctx.lineWidth = 2.2;
+    ctx.setLineDash([9, 5]);
+    ctx.beginPath(); ctx.moveTo(pL.x, pL.y); ctx.lineTo(pR.x, pR.y); ctx.stroke();
+    ctx.setLineDash([]);
+
+    // Punto de origen en eje Y (donde b coloca al jugador)
+    ctx.globalAlpha = .95;
+    ctx.fillStyle = 'rgba(250,220,80,1)';
+    ctx.beginPath(); ctx.arc(pL.x, pL.y, 5, 0, Math.PI * 2); ctx.fill();
+    ctx.globalAlpha = .3;
+    ctx.strokeStyle = 'rgba(250,220,80,1)'; ctx.lineWidth = 1.5;
+    ctx.beginPath(); ctx.arc(pL.x, pL.y, 10, 0, Math.PI * 2); ctx.stroke();
+    ctx.restore();
+  }
+
+  // ── Trayectoria animada ───────────────────────────────────────────────
+  if(anim && anim.t > 0){
+    const progress = Math.min(anim.t / anim.dur, 1);
+    const endIdx   = Math.floor(progress * (anim.pts.length - 1));
+    // Estela
+    ctx.save();
+    ctx.strokeStyle = 'rgba(240,220,80,.55)'; ctx.lineWidth = 2; ctx.setLineDash([5,5]);
+    ctx.beginPath();
+    anim.pts.slice(0, endIdx + 1).forEach((p, i) => i === 0 ? ctx.moveTo(p.x, p.y) : ctx.lineTo(p.x, p.y));
+    ctx.stroke();
+    ctx.setLineDash([]);
+    ctx.restore();
+
+    // Bola volando
+    const pos = anim.pts[endIdx];
+    ctx.save();
+    ctx.globalAlpha = .2; ctx.fillStyle = '#000';
+    ctx.beginPath(); ctx.ellipse(pos.x + 2, pos.y + 3, 7, 3.5, 0, 0, Math.PI * 2); ctx.fill();
+    ctx.globalAlpha = 1;
+    const bg = ctx.createRadialGradient(pos.x - 2, pos.y - 2, 1, pos.x, pos.y, 7);
+    bg.addColorStop(0, '#fff'); bg.addColorStop(.6, '#f5f0e8'); bg.addColorStop(1, '#ccc');
+    ctx.fillStyle = bg; ctx.beginPath(); ctx.arc(pos.x, pos.y, 7, 0, Math.PI * 2); ctx.fill();
+    // Costuras
+    ctx.strokeStyle = 'rgba(0,0,0,.2)'; ctx.lineWidth = 1;
+    ctx.beginPath(); ctx.arc(pos.x, pos.y, 4, -0.5, 0.5); ctx.stroke();
+    ctx.restore();
+  }
+
+  // ── Barreras: troncos caídos ─────────────────────────────────────────────
+  const cfg = LEVELS[lvlIdx];
+  for(const bar of cfg.barriers){
+    const xc   = tc(bar.x, 0).x;
+    const yTop = tc(0, bar.yTop).y;
+    const yBot = tc(0, bar.yBot).y;
+    const logW = SCALE() * 0.28;          // grosor del tronco
+    const logH = Math.abs(yBot - yTop);   // longitud del tronco (vertical)
+    const topY = Math.min(yTop, yBot);
+
+    ctx.save();
+
+    // Sombra del tronco
+    ctx.globalAlpha = .25; ctx.fillStyle = '#000';
+    ctx.beginPath();
+    ctx.roundRect(xc - logW/2 + 4, topY + 4, logW, logH, logW/2);
+    ctx.fill();
+
+    // Cuerpo principal del tronco (corteza marrón oscuro)
+    ctx.globalAlpha = 1;
+    ctx.fillStyle = '#6b3e1a';
+    ctx.beginPath();
+    ctx.roundRect(xc - logW/2, topY, logW, logH, logW/2);
+    ctx.fill();
+
+    // Veta central (madera interior más clara)
+    ctx.fillStyle = '#9a5c28';
+    ctx.beginPath();
+    ctx.roundRect(xc - logW/2 + 4, topY + 2, logW - 8, logH - 4, logW/2 - 3);
+    ctx.fill();
+
+    // Anillos del corte superior
+    ctx.strokeStyle = '#7a4820'; ctx.lineWidth = 1.2;
+    [0.28, 0.18, 0.10].forEach(r => {
+      ctx.globalAlpha = 0.5;
+      ctx.beginPath();
+      ctx.ellipse(xc, topY + logW/2, logW/2 * r * 2.2, logW/2 * r, 0, 0, Math.PI*2);
+      ctx.stroke();
+    });
+    // Tapa superior (elipse del corte)
+    ctx.globalAlpha = 1;
+    ctx.fillStyle = '#b87040';
+    ctx.beginPath();
+    ctx.ellipse(xc, topY + logW/2, logW/2, logW/2 * 0.35, 0, 0, Math.PI*2);
+    ctx.fill();
+    ctx.strokeStyle = '#8a5025'; ctx.lineWidth = 1;
+    ctx.beginPath();
+    ctx.ellipse(xc, topY + logW/2, logW/2, logW/2 * 0.35, 0, 0, Math.PI*2);
+    ctx.stroke();
+
+    // Anillos del corte inferior
+    ctx.fillStyle = '#b87040';
+    ctx.beginPath();
+    ctx.ellipse(xc, topY + logH - logW/2, logW/2, logW/2 * 0.35, 0, 0, Math.PI*2);
+    ctx.fill();
+    ctx.strokeStyle = '#8a5025';
+    ctx.beginPath();
+    ctx.ellipse(xc, topY + logH - logW/2, logW/2, logW/2 * 0.35, 0, 0, Math.PI*2);
+    ctx.stroke();
+
+    // Vetas longitudinales del tronco
+    ctx.globalAlpha = .25; ctx.strokeStyle = '#4a2a0e'; ctx.lineWidth = 1;
+    [-logW/5, 0, logW/5].forEach(dx => {
+      ctx.beginPath();
+      ctx.moveTo(xc + dx, topY + logW/2);
+      ctx.lineTo(xc + dx, topY + logH - logW/2);
+      ctx.stroke();
+    });
+
+    // Etiqueta x
+    ctx.globalAlpha = .45; ctx.fillStyle = '#c8a060';
+    ctx.font = '9px Space Mono'; ctx.textAlign = 'center';
+    ctx.fillText(`x=${bar.x}`, xc, H - 6);
+    ctx.restore();
+  }
+
+  // ── Arco ──────────────────────────────────────────────────────────────
+  const goalX   = W - PAD_R();
+  const goalTop = tc(0, cfg.goal.yTop).y;
+  const goalBot = tc(0, cfg.goal.yBot).y;
+  const goalH   = goalBot - goalTop;
+  const postW   = 5, netD = SCALE() * 0.5;
+
+  // Red
+  ctx.save(); ctx.globalAlpha = .18; ctx.strokeStyle = '#fff'; ctx.lineWidth = 1;
+  const netCols = 6, netRows = 8;
+  for(let i = 0; i <= netCols; i++){
+    const nx = goalX + (i / netCols) * netD;
+    ctx.beginPath(); ctx.moveTo(nx, goalTop); ctx.lineTo(nx, goalBot); ctx.stroke();
+  }
+  for(let i = 0; i <= netRows; i++){
+    const ny = goalTop + (i / netRows) * goalH;
+    ctx.beginPath(); ctx.moveTo(goalX, ny); ctx.lineTo(goalX + netD, ny); ctx.stroke();
+  }
+  ctx.restore();
+
+  // Postes
+  ctx.fillStyle = '#e8e8e8';
+  ctx.fillRect(goalX - postW/2, goalTop - postW, postW, postW); // travesaño sup
+  ctx.fillRect(goalX - postW/2, goalBot, postW, postW);          // travesaño inf
+  ctx.fillRect(goalX - postW/2, goalTop, postW, goalH);          // poste vertical
+  // Brillo
+  ctx.save(); ctx.globalAlpha = .4; ctx.fillStyle = '#fff';
+  ctx.fillRect(goalX - postW/2, goalTop, 2, goalH); ctx.restore();
+
+  // Zona de gol (resaltado)
+  ctx.save(); ctx.globalAlpha = .08;
+  ctx.fillStyle = '#a0e060';
+  ctx.fillRect(goalX, goalTop, netD, goalH); ctx.restore();
+  // Etiqueta del arco
+  ctx.font = '9px Space Mono'; ctx.fillStyle = 'rgba(160,224,96,.45)';
+  ctx.textAlign = 'center';
+  ctx.fillText(`arco`, goalX + netD/2, goalTop - 6);
+
+  // ── Arquero ────────────────────────────────────────────────────────────
+  {
+    const gkPos = tc(X_MAX(), gkY);
+    const gx = gkPos.x - SCALE() * 0.15; // ligeramente dentro del arco
+    const gy = gkPos.y;
+    const gkR = SCALE() * 0.45; // radio visual para colisión
+
+    // Sombra
+    ctx.save(); ctx.globalAlpha = .18; ctx.fillStyle = '#000';
+    ctx.beginPath(); ctx.ellipse(gx + 2, gy + 15, 8, 3.5, 0, 0, Math.PI*2); ctx.fill(); ctx.restore();
+
+    // Piernas extendidas (postura de atajada)
+    ctx.fillStyle = '#1a1a6a';
+    ctx.beginPath(); ctx.roundRect(gx - 9, gy + 2, 6, 14, 2); ctx.fill();
+    ctx.beginPath(); ctx.roundRect(gx + 3, gy + 2, 6, 14, 2); ctx.fill();
+    // Guantes (brazos extendidos)
+    ctx.fillStyle = '#e8a020';
+    ctx.beginPath(); ctx.roundRect(gx - 16, gy - 8, 10, 7, 3); ctx.fill();
+    ctx.beginPath(); ctx.roundRect(gx + 6,  gy - 8, 10, 7, 3); ctx.fill();
+
+    // Cuerpo
+    ctx.fillStyle = '#2850cc';
+    ctx.beginPath(); ctx.roundRect(gx - 9, gy - 10, 18, 14, 3); ctx.fill();
+    ctx.fillStyle = '#fff'; ctx.font = 'bold 7px Space Mono'; ctx.textAlign = 'center';
+    ctx.fillText('1', gx, gy - 1);
+
+    // Cabeza
+    ctx.fillStyle = '#e8c060';
+    ctx.beginPath(); ctx.arc(gx, gy - 17, 8, 0, Math.PI*2); ctx.fill();
+    // Gorra de arquero
+    ctx.fillStyle = '#2850cc';
+    ctx.beginPath(); ctx.roundRect(gx - 9, gy - 24, 18, 6, [3,3,0,0]); ctx.fill();
+    ctx.fillStyle = '#1a3aaa';
+    ctx.beginPath(); ctx.roundRect(gx - 11, gy - 19, 22, 3, 2); ctx.fill();
+
+    // Indicador de rango (zona que cubre el arquero)
+    ctx.save(); ctx.globalAlpha = .08;
+    ctx.fillStyle = '#4888c4';
+    ctx.fillRect(gx - 2, tc(X_MAX(), gkY + 0.45).y, 4,
+                 tc(X_MAX(), gkY - 0.45).y - tc(X_MAX(), gkY + 0.45).y);
+    ctx.restore();
+  }
+
+  // ── Personaje (portador del balón) ─────────────────────────────────────
+  if(!anim || anim.t < 2){
+    const bPos  = tc(0, paramB); // el personaje se mueve con b
+    const px = bPos.x, py = bPos.y;
+
+    // Sombra
+    ctx.save(); ctx.globalAlpha = .2; ctx.fillStyle = '#000';
+    ctx.beginPath(); ctx.ellipse(px + 3, py + 16, 9, 4, 0, 0, Math.PI * 2); ctx.fill(); ctx.restore();
+
+    // Piernas
+    ctx.fillStyle = '#1a3a8a';
+    ctx.beginPath(); ctx.roundRect(px - 6, py + 4, 5, 12, 2); ctx.fill();
+    ctx.beginPath(); ctx.roundRect(px + 1, py + 4, 5, 12, 2); ctx.fill();
+    // Zapatillas
+    ctx.fillStyle = '#111';
+    ctx.beginPath(); ctx.roundRect(px - 7, py + 14, 7, 4, 2); ctx.fill();
+    ctx.beginPath(); ctx.roundRect(px, py + 14, 7, 4, 2); ctx.fill();
+
+    // Cuerpo
+    ctx.fillStyle = '#c83020';
+    ctx.beginPath(); ctx.roundRect(px - 8, py - 8, 16, 14, 3); ctx.fill();
+    // Número
+    ctx.fillStyle = '#fff'; ctx.font = 'bold 8px Space Mono'; ctx.textAlign = 'center';
+    ctx.fillText('10', px, py + 1);
+
+    // Cabeza
+    ctx.fillStyle = '#e8c060';
+    ctx.beginPath(); ctx.arc(px, py - 14, 9, 0, Math.PI * 2); ctx.fill();
+    // Pelo
+    ctx.fillStyle = '#4a2e10';
+    ctx.beginPath(); ctx.arc(px, py - 18, 7, Math.PI, Math.PI * 2); ctx.fill();
+
+    // Balón al pie
+    const bx2 = px + 12, by2 = py + 16;
+    ctx.fillStyle = '#f5f0e8';
+    ctx.beginPath(); ctx.arc(bx2, by2, 6, 0, Math.PI * 2); ctx.fill();
+    ctx.strokeStyle = '#333'; ctx.lineWidth = .8;
+    ctx.beginPath(); ctx.arc(bx2, by2, 6, 0, Math.PI * 2); ctx.stroke();
+    // Pentágono
+    ctx.fillStyle = '#111';
+    ctx.beginPath();
+    for(let i = 0; i < 5; i++){
+      const a = (Math.PI*2/5)*i - Math.PI/2;
+      i===0?ctx.moveTo(bx2+Math.cos(a)*3,by2+Math.sin(a)*3)
+           :ctx.lineTo(bx2+Math.cos(a)*3,by2+Math.sin(a)*3);
+    }
+    ctx.closePath(); ctx.fill();
+  }
+
+  // ── Bola estática (cuando no hay anim) ─────────────────────────────────
+  // La bola de tiro está siempre en el punto (0, b) = origen del tiro
+  if(!anim && gstate === 'playing'){
+    const op = tc(0, paramB);
+    // (La bola la dibujamos como parte del personaje arriba)
+  }
+
+  // ── Overlay menú ──────────────────────────────────────────────────────
+  if(gstate === 'menu'){
+    ctx.save();
+    ctx.fillStyle = 'rgba(4,10,4,0.86)';
+    ctx.beginPath(); ctx.roundRect(10, 10, W-20, H-20, 8); ctx.fill();
+
+    ctx.textAlign = 'center';
+    ctx.fillStyle = 'rgba(245,240,232,.92)';
+    ctx.font = `bold ${Math.round(W*0.045)}px Lora, serif`;
+    ctx.fillText('Tiro Libre', W/2, H*.28);
+
+    ctx.fillStyle = 'rgba(109,184,109,.7)';
+    ctx.font = `${Math.round(W*0.022)}px Space Mono`;
+    ctx.fillText('Ajusta m (pendiente) y b (origen en Y)', W/2, H*.42);
+    ctx.fillText('para que la bola entre al arco', W/2, H*.52);
+    ctx.fillText('esquivando las barreras.', W/2, H*.62);
+
+    const bw=180, bh=38, bx2=W/2-bw/2, by2=H*.72;
+    ctx.fillStyle = '#6db86d';
+    ctx.beginPath(); ctx.roundRect(bx2, by2, bw, bh, 6); ctx.fill();
+    ctx.fillStyle = '#060e04';
+    ctx.font = `bold ${Math.round(W*0.022)}px Space Mono`;
+    ctx.fillText('COMENZAR', W/2, by2 + bh/2 + 5);
+    menuBtn = { x:bx2, y:by2, w:bw, h:bh };
+    ctx.restore();
+  } else {
+    menuBtn = null;
+  }
+
+  // ── Overlay resultado ─────────────────────────────────────────────────
+  if(overlayData){
+    const d = overlayData;
+    const ox = W*.12, oy = H*.1, ow = W*.76, oh = H*.8;
+    ctx.save();
+    ctx.fillStyle = 'rgba(4,10,4,0.92)';
+    ctx.beginPath(); ctx.roundRect(ox, oy, ow, oh, 10); ctx.fill();
+    ctx.strokeStyle = 'rgba(109,184,109,.28)'; ctx.lineWidth = 1;
+    ctx.beginPath(); ctx.roundRect(ox, oy, ow, oh, 10); ctx.stroke();
+
+    ctx.textAlign = 'center';
+    ctx.fillStyle = 'rgba(245,240,232,.92)';
+    ctx.font = `bold ${Math.round(W*.046)}px Lora, serif`;
+    ctx.fillText('¡Gol! 🎉', W/2, oy + oh*.25);
+
+    ctx.fillStyle = 'rgba(240,192,96,.85)';
+    ctx.font = `${Math.round(W*.024)}px Space Mono`;
+    ctx.fillText(`${d.attempts} intento${d.attempts!==1?'s':''}`, W/2, oy + oh*.4);
+
+    ctx.fillStyle = 'rgba(160,220,100,.7)';
+    ctx.font = `${Math.round(W*.02)}px Space Mono`;
+    ctx.fillText(`Función usada: f(x) = ${d.mStr}x ${d.bStr}`, W/2, oy + oh*.53);
+    ctx.fillStyle = 'rgba(180,220,140,.4)';
+    ctx.font = `${Math.round(W*.015)}px Space Mono`;
+    ctx.fillText(`m definió el ángulo · b definió desde dónde salió`, W/2, oy + oh*.62);
+
+    const bw=160, bh=34, bx2=W/2-bw/2, by2=oy+oh*.73;
+    ctx.fillStyle = '#6db86d';
+    ctx.beginPath(); ctx.roundRect(bx2, by2, bw, bh, 5); ctx.fill();
+    ctx.fillStyle = '#060e04';
+    ctx.font = `bold ${Math.round(W*.02)}px Space Mono`;
+    ctx.fillText(d.hasNext ? `Nivel ${d.next} →` : '¡Fin! →', W/2, by2 + bh/2 + 5);
+    overlayBtn = { x:bx2, y:by2, w:bw, h:bh, action: d.hasNext ? 'next' : 'restart' };
+    ctx.restore();
+  } else {
+    overlayBtn = null;
+  }
+
+  // Partículas
+  for(const p of parts){
+    ctx.save(); ctx.globalAlpha = p.life * .9;
+    ctx.fillStyle = p.col;
+    ctx.beginPath(); ctx.arc(p.x, p.y, 3.5, 0, Math.PI*2); ctx.fill();
+    ctx.restore();
+  }
+}
+
+// ── Clicks en canvas ──────────────────────────────────────────────────────
+cv.addEventListener('click', e => {
+  const r  = cv.getBoundingClientRect();
+  const sx = cv.width / r.width, sy = cv.height / r.height;
+  const mx = (e.clientX - r.left) * sx, my = (e.clientY - r.top) * sy;
+
+  if(menuBtn && inRect(mx, my, menuBtn)){
+    lvlIdx = 0; goals = 0;
+    document.getElementById('hgol').textContent = 0;
+    loadLevel(); return;
+  }
+  if(overlayBtn && inRect(mx, my, overlayBtn)){
+    const act = overlayBtn.action;
+    overlayData = null; overlayBtn = null;
+    if(act === 'next'){ lvlIdx++; loadLevel(); }
+    else { lvlIdx = 0; goals = 0; document.getElementById('hgol').textContent = 0; loadLevel(); }
+  }
+});
+
+function inRect(mx, my, r){ return mx>=r.x && mx<=r.x+r.w && my>=r.y && my<=r.y+r.h; }
+
+// ── Controles ──────────────────────────────────────────────────────────────
+document.getElementById('sl-m').addEventListener('input', e => {
+  paramM = parseFloat(e.target.value); updateEq();
+});
+document.getElementById('sl-b').addEventListener('input', e => {
+  paramB = parseFloat(e.target.value); updateEq();
+});
+document.getElementById('btn-shoot').addEventListener('click', shoot);
+document.getElementById('bmn').addEventListener('click', showMenu);
+
+// ── Loop ──────────────────────────────────────────────────────────────────
+function loop(){
+  wAnim++;
+  if(anim){
+    anim.t++;
+    if(anim.t >= anim.dur) resolveAnim();
+  }
+  stepGoalkeeper();
+  stepParts();
+  draw();
+  requestAnimationFrame(loop);
+}
+
+// Precarga nivel 1 y arranca menú
+lvlIdx = 0;
+const _c = LEVELS[0];
+document.getElementById('sl-m').min = _c.mRange[0]; document.getElementById('sl-m').max = _c.mRange[1];
+document.getElementById('sl-b').min = _c.bRange[0]; document.getElementById('sl-b').max = _c.bRange[1];
+updateEq();
+gstate = 'menu';
+randomizeGoalkeeper();
+loop();
+</script>
+</body>
+</html>
